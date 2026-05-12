@@ -1,0 +1,282 @@
+.app-shell {
+  width: min(100%, 430px);
+  margin: 0 auto;
+  padding: 18px 14px 32px;
+}
+
+.app-header {
+  padding: 18px 4px 12px;
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  color: #d7b56d;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+h1,
+h2 {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+h1 {
+  color: #fff8df;
+  font-size: 30px;
+  line-height: 1.15;
+}
+
+h2 {
+  color: #fff8df;
+  font-size: 22px;
+}
+
+.subtitle {
+  margin: 10px 0 0;
+  color: #b8c7bc;
+  font-size: 14px;
+}
+
+.game-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 12px 0;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+.tab,
+.segment,
+.primary-button,
+.copy-button {
+  min-height: 46px;
+  border: 0;
+  border-radius: 8px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.tab {
+  background: #173d31;
+  color: #d9e7db;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.tab.is-active,
+.segment.is-active {
+  background: #d7b56d;
+  color: #17130b;
+}
+
+.panel,
+.result-card {
+  margin-top: 12px;
+  border: 1px solid rgba(215, 181, 109, 0.24);
+  border-radius: 8px;
+  background: #0f2b24;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.24);
+}
+
+.panel {
+  padding: 14px;
+}
+
+.section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: #fff8df;
+}
+
+.section-title span {
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.section-title strong {
+  color: #d7b56d;
+  font-size: 12px;
+}
+
+.rule-list {
+  display: grid;
+  gap: 7px;
+  margin: 12px 0;
+  padding-left: 18px;
+  color: #dce7dc;
+  font-size: 14px;
+}
+
+.format-tip {
+  margin: 8px 0 0;
+  color: #9db1a6;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.form-panel {
+  display: grid;
+  gap: 13px;
+}
+
+label,
+.field-group {
+  display: grid;
+  gap: 7px;
+  color: #edf5e9;
+  font-size: 14px;
+  font-weight: 750;
+}
+
+input,
+select {
+  width: 100%;
+  min-height: 48px;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: #071b17;
+  color: #fff8df;
+  padding: 0 12px;
+  outline: none;
+}
+
+input:focus,
+select:focus {
+  border-color: #d7b56d;
+  box-shadow: 0 0 0 3px rgba(215, 181, 109, 0.18);
+}
+
+.segmented {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.segment {
+  background: #173d31;
+  color: #d9e7db;
+}
+
+.primary-button,
+.copy-button {
+  width: 100%;
+  background: #d7b56d;
+  color: #17130b;
+  font-size: 16px;
+}
+
+.copy-button {
+  margin-top: 14px;
+}
+
+.error-box {
+  display: grid;
+  gap: 4px;
+  border-radius: 8px;
+  background: rgba(255, 100, 90, 0.12);
+  color: #ffd8d2;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.error-box p {
+  margin: 0;
+}
+
+.result-card {
+  padding: 16px;
+  background:
+    linear-gradient(145deg, rgba(215, 181, 109, 0.13), transparent 34%),
+    #08231d;
+}
+
+.result-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid rgba(215, 181, 109, 0.22);
+  padding-bottom: 12px;
+}
+
+.result-card-header span {
+  border-radius: 999px;
+  background: rgba(215, 181, 109, 0.16);
+  color: #f2d890;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.result-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.result-item {
+  display: grid;
+  gap: 5px;
+  min-height: 68px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 10px;
+}
+
+.result-item span {
+  color: #a8baae;
+  font-size: 12px;
+}
+
+.result-item strong {
+  color: #fff8df;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.advice-box,
+.algorithm-box {
+  margin-top: 12px;
+  border-radius: 8px;
+  padding: 11px 12px;
+}
+
+.advice-box {
+  background: rgba(215, 181, 109, 0.13);
+}
+
+.algorithm-box {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.advice-box strong,
+.algorithm-box strong {
+  color: #f2d890;
+  font-size: 13px;
+}
+
+.advice-box p,
+.algorithm-box p,
+.copy-status {
+  margin: 6px 0 0;
+  color: #dce7dc;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.copy-status {
+  text-align: center;
+  color: #f2d890;
+}
