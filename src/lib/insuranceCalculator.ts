@@ -10,6 +10,8 @@ export type Card = {
 
 export type OddsValue = number | null
 
+export type HoldemPreflopPairInsurance = 'setMining45' | 'overtake35'
+
 export type InsuranceInput = {
   gameType: GameType
   playerAInput: string
@@ -19,6 +21,8 @@ export type InsuranceInput = {
   street: Street
   potAmount: number
   allInAmount: number
+  /** 翻前对子 vs 对子：中暗三 4.5 / 普通反超 3.5（仅满足场景时有效） */
+  holdemPreflopPairInsurance?: HoldemPreflopPairInsurance
 }
 
 export type InsuranceResult = {
@@ -35,6 +39,14 @@ export type InsuranceResult = {
   algorithmStatus: string
   resultText: string
   outsDisplayLabel: string
+  oddsLineLabel: string
+  leaderHandDisplay?: string
+  underdogHandDisplay?: string
+  boardDisplay?: string
+  holdemPreflopPairSpecial?: HoldemPreflopPairInsurance | null
+  holdemInsuranceTypeLabel?: string | null
+  holdemSetMiningCardsDisplay?: string | null
+  holdemPairRuleHint?: string | null
 }
 
 export const gameLabels: Record<GameType, string> = {
@@ -42,6 +54,9 @@ export const gameLabels: Record<GameType, string> = {
   omaha: '奥马哈',
   shortDeck: '短牌',
 }
+
+/** UI/复制中德州游戏名统一用此常量 */
+export const HOLDEM_GAME_NAME = '德州扑克'
 
 const rankSets: Record<GameType, string[]> = {
   holdem: ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'],
@@ -51,8 +66,48 @@ const rankSets: Record<GameType, string[]> = {
 
 const suits = ['h', 's', 'd', 'c']
 
+const SUIT_SYMBOL: Record<string, string> = {
+  h: '♥',
+  s: '♠',
+  d: '♦',
+  c: '♣',
+}
+
+export function formatCardCodeForDisplay(code: string): string {
+  const c = code.trim()
+  if (c.length !== 2) {
+    return code
+  }
+  const rank = c[0]?.toUpperCase() ?? ''
+  const suit = c[1]?.toLowerCase() ?? ''
+  const sym = SUIT_SYMBOL[suit] ?? suit
+  return `${rank}${sym}`
+}
+
+/** 德州选牌器：点数自上而下展示顺序 */
+export const HOLDEM_GRID_RANKS = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'] as const
+
 export const holdemOddsTable: Record<number, number> = {
+  1: 30,
   2: 15,
+  3: 10,
+  4: 8,
+  5: 6,
+  6: 5,
+  7: 4,
+  8: 3,
+  9: 3,
+  10: 2.5,
+  11: 2.5,
+  12: 2,
+  13: 2,
+  14: 1.5,
+  15: 1.5,
+  16: 1,
+  17: 1,
+  18: 1,
+  19: 1,
+  20: 1,
 }
 
 export const omahaOddsTable: Record<number, OddsValue> = {
@@ -394,6 +449,81 @@ export function parseCards(input: string): Card[] {
     })
 }
 
+function nChooseK(n: number, k: number): number {
+  if (k < 0 || k > n) {
+    return 0
+  }
+  if (k === 0 || k === n) {
+    return 1
+  }
+  const kk = Math.min(k, n - k)
+  let acc = 1
+  for (let i = 1; i <= kk; i++) {
+    acc = (acc * (n - kk + i)) / i
+  }
+  return acc
+}
+
+/** 无放回：deck 张牌中含 goods 张命中牌，均匀抽取 draw 张，至少抽到一张命中牌的概率 */
+function probAtLeastOneGoodInDraw(deckSize: number, goods: number, draw: number): number {
+  if (goods <= 0 || draw <= 0 || deckSize <= 0 || draw > deckSize) {
+    return 0
+  }
+  const bad = deckSize - goods
+  if (draw > bad) {
+    return 1
+  }
+  return 1 - nChooseK(bad, draw) / nChooseK(deckSize, draw)
+}
+
+function isPocketPairCards(hand: Card[]): boolean {
+  return hand.length === 2 && hand[0]!.rank === hand[1]!.rank
+}
+
+/**
+ * 翻前、公共牌 0、双方均为口袋对子（德州）。
+ * 用于中暗三 4.5 / 普通反超 3.5 特殊保险；与领先方指定无关。
+ */
+export function isHoldemPreflopPairVsPairScenario(
+  gameType: GameType,
+  street: Street,
+  playerA: Card[],
+  playerB: Card[],
+  board: Card[],
+): boolean {
+  return (
+    gameType === 'holdem' &&
+    street === 'preflop' &&
+    board.length === 0 &&
+    isPocketPairCards(playerA) &&
+    isPocketPairCards(playerB)
+  )
+}
+
+/** 落后方口袋对子在牌局中尚未出现的两张同点数牌（保险命中牌） */
+function underdogSetMiningCodes(underdog: Player, playerA: Card[], playerB: Card[]): string[] {
+  const ug = underdog === 'A' ? playerA : playerB
+  if (!isPocketPairCards(ug)) {
+    return []
+  }
+  const used = new Set<string>([...playerA, ...playerB].map((c) => c.code))
+  const r = ug[0]!.rank
+  const out: string[] = []
+  for (const suit of suits) {
+    const code = `${r}${suit}`
+    if (!used.has(code)) {
+      out.push(code)
+    }
+  }
+  return out.sort()
+}
+
+function formatCardSpaceStringForDisplay(spaceSeparated: string): string {
+  return parseCards(spaceSeparated)
+    .map((card) => formatCardCodeForDisplay(card.code))
+    .join(' ')
+}
+
 export function buildDeck(gameType: GameType): Card[] {
   return rankSets[gameType].flatMap((rank) =>
     suits.map((suit) => ({
@@ -517,21 +647,99 @@ export function formatAmount(value: number | null): string {
 }
 
 export function formatOdds(odds: OddsValue): string {
-  return odds ? `${odds} 倍` : '待确认'
+  return odds ? `${odds}倍` : '待确认'
 }
 
 export function formatPercent(value: number): string {
   return `${(value * 100).toFixed(2)}%`
 }
 
+/** 德州结果卡片底部说明 / 复制文案末行 */
+export const HOLDEM_RESULT_FOOTER =
+  '概率按完整 runout 枚举，赔率为默认参考表，现场可调整。'
+
+export function collectHoldemResultLines(
+  result: InsuranceResult,
+  opts?: { customBuyText?: string; potAmount?: number },
+): string[] {
+  const boardLine = result.boardDisplay?.trim() ? result.boardDisplay : '（无）'
+  const hitProbLine =
+    result.holdemPreflopPairSpecial === 'overtake35'
+      ? '命中概率：固定赔率'
+      : `命中概率：${formatPercent(result.hitProbability)}`
+  const lines = [
+    `【${HOLDEM_GAME_NAME}保险计算】`,
+    `领先方：${result.leaderHandDisplay ?? ''}`,
+    `落后方：${result.underdogHandDisplay ?? ''}`,
+    `公共牌：${boardLine}`,
+    `${result.outsDisplayLabel}：${result.outs}`,
+    hitProbLine,
+    `${result.oddsLineLabel}：${formatOdds(result.defaultOdds)}`,
+  ]
+  if (result.holdemInsuranceTypeLabel) {
+    lines.push(`保险类型：${result.holdemInsuranceTypeLabel}`)
+  }
+  if (result.holdemSetMiningCardsDisplay) {
+    lines.push(`命中牌：${result.holdemSetMiningCardsDisplay}`)
+  }
+  if (result.holdemPairRuleHint) {
+    lines.push(result.holdemPairRuleHint)
+  }
+  lines.push(`买保本：${formatAmount(result.breakEvenInsurance)}`)
+  lines.push(`买满池：${formatAmount(result.fullPotInsurance)}`)
+  const t = (opts?.customBuyText ?? '').trim()
+  const pot = opts?.potAmount
+  if (t !== '' && pot !== undefined && Number.isFinite(pot) && pot > 0) {
+    const n = Number(t)
+    if (Number.isFinite(n) && n > 0) {
+      lines.push(`自定义保额：${n}`)
+      const odds = result.defaultOdds
+      if (!odds || odds <= 0) {
+        lines.push('预计赔付：待确认')
+        lines.push('状态：待确认')
+      } else {
+        const payout = n * odds
+        lines.push(`预计赔付：${payout.toFixed(2)}`)
+        if (payout > pot) {
+          lines.push(`超过总底池，最多可买 ${formatAmount(result.fullPotInsurance)}`)
+          lines.push('状态：不可买')
+        } else {
+          lines.push('状态：可买')
+        }
+      }
+    }
+  }
+  if (result.holdemPreflopPairSpecial === 'setMining45') {
+    lines.push('命中概率按河牌前 5 张公共牌中是否出现保险牌估算；赔率固定 4.5 倍，现场可调整。')
+  } else if (result.holdemPreflopPairSpecial === 'overtake35') {
+    lines.push('赔率固定 3.5 倍（普通反超保险），现场可调整。')
+  } else {
+    lines.push(HOLDEM_RESULT_FOOTER)
+  }
+  return lines
+}
+
+export function buildHoldemClipboardText(
+  result: InsuranceResult,
+  customBuyText: string,
+  potAmount: number,
+): string {
+  return collectHoldemResultLines(result, { customBuyText, potAmount }).join('\n')
+}
+
 export function buildResultText(result: InsuranceResult): string {
+  const oddsLabel = result.oddsLineLabel ?? '默认赔率'
+  if (result.gameType === 'holdem' && result.leaderHandDisplay !== undefined) {
+    return collectHoldemResultLines(result).join('\n')
+  }
+
   return [
     `【${gameLabels[result.gameType]}保险计算】`,
     `领先方：玩家 ${result.leader}`,
     `落后方：玩家 ${result.underdog}`,
     `${result.outsDisplayLabel}：${result.outs}`,
     `保险命中概率：${formatPercent(result.hitProbability)}`,
-    `默认赔率：${formatOdds(result.defaultOdds)}`,
+    `${oddsLabel}：${formatOdds(result.defaultOdds)}`,
     `买保本金额：${formatAmount(result.breakEvenInsurance)}`,
     `买满池金额：${formatAmount(result.fullPotInsurance)}`,
     `行动建议：${result.advice}`,
@@ -556,6 +764,25 @@ export function calculateInsurance(input: InsuranceInput): {
     errors.push('领先方本次 All-in 投入需要大于 0')
   }
 
+  if (input.potAmount > 0 && input.allInAmount > input.potAmount) {
+    errors.push('领先方本次 All-in 投入不能大于总底池')
+  }
+
+  if (input.gameType === 'holdem') {
+    if (input.street === 'river') {
+      errors.push('德州扑克不能选择河牌买保险')
+    }
+    if (input.street === 'preflop' && board.length !== 0) {
+      errors.push('翻前公共牌必须为 0 张')
+    }
+    if (input.street === 'flop' && board.length !== 3) {
+      errors.push('翻牌公共牌必须为 3 张')
+    }
+    if (input.street === 'turn' && board.length !== 4) {
+      errors.push('转牌公共牌必须为 4 张')
+    }
+  }
+
   if (errors.length > 0) {
     return { errors, result: null }
   }
@@ -564,9 +791,15 @@ export function calculateInsurance(input: InsuranceInput): {
   const remainingCards = buildDeck(input.gameType).length - usedCards.length
   const underdog = input.leader === 'A' ? 'B' : 'A'
 
-  const holdemAlgoStatus =
-    '德州扑克保险命中概率已使用完整 runout 枚举；outs 显示为当前街下一张直接反超牌数。奥马哈和短牌仍待后续阶段接入。'
+  const holdemAlgoShort = HOLDEM_RESULT_FOOTER
   const frameworkStatus = '当前为计算框架与基础估算，精确枚举算法待下一阶段接入'
+
+  const pairVsPair =
+    input.gameType === 'holdem' &&
+    isHoldemPreflopPairVsPairScenario(input.gameType, input.street, playerA, playerB, board)
+
+  /** 翻前对子 vs 对子特殊保险（4.5 / 3.5）均不跑完整河牌枚举 */
+  const skipFullHoldemRunoutEnum = pairVsPair
 
   let outs: number
   let hitProbability: number
@@ -574,15 +807,26 @@ export function calculateInsurance(input: InsuranceInput): {
   let outsDisplayLabel: string
 
   if (input.gameType === 'holdem') {
-    const enumResult = enumerateHoldem(underdog, playerA, playerB, board)
-    outs = countHoldemDirectOuts(underdog, playerA, playerB, board)
-    hitProbability = enumResult.total > 0 ? enumResult.underdogWins / enumResult.total : 0
-    if (board.length >= 5) {
-      algorithmStatus = `${holdemAlgoStatus}河牌已完成，无后续 outs。`
+    if (skipFullHoldemRunoutEnum) {
+      outs = countHoldemDirectOuts(underdog, playerA, playerB, board)
+      hitProbability = 0
+      if (board.length >= 5) {
+        algorithmStatus = `河牌已完成，无后续 outs。${holdemAlgoShort}`
+      } else {
+        algorithmStatus = holdemAlgoShort
+      }
+      outsDisplayLabel = '当前街直接 outs'
     } else {
-      algorithmStatus = holdemAlgoStatus
+      const enumResult = enumerateHoldem(underdog, playerA, playerB, board)
+      outs = countHoldemDirectOuts(underdog, playerA, playerB, board)
+      hitProbability = enumResult.total > 0 ? enumResult.underdogWins / enumResult.total : 0
+      if (board.length >= 5) {
+        algorithmStatus = `河牌已完成，无后续 outs。${holdemAlgoShort}`
+      } else {
+        algorithmStatus = holdemAlgoShort
+      }
+      outsDisplayLabel = '当前街直接 outs'
     }
-    outsDisplayLabel = '当前街直接 outs'
   } else {
     outs = estimateOuts(input.gameType, input.leader, playerA, playerB, board)
     hitProbability = calculateHitProbability(outs, remainingCards)
@@ -590,12 +834,68 @@ export function calculateInsurance(input: InsuranceInput): {
     outsDisplayLabel = '框架估算 outs'
   }
 
-  const defaultOdds = getDefaultOdds(input.gameType, outs)
+  let holdemPreflopPairSpecial: HoldemPreflopPairInsurance | null = null
+  let holdemInsuranceTypeLabel: string | null = null
+  let holdemSetMiningCardsDisplay: string | null = null
+  let holdemPairRuleHint: string | null = null
+
+  let defaultOdds: OddsValue
+
+  if (pairVsPair) {
+    holdemPreflopPairSpecial = input.holdemPreflopPairInsurance ?? 'setMining45'
+    outsDisplayLabel = 'OUTS'
+    if (holdemPreflopPairSpecial === 'setMining45') {
+      defaultOdds = 4.5
+      const deckAfterHole = 52 - 4
+      hitProbability = probAtLeastOneGoodInDraw(deckAfterHole, 2, 5)
+      outs = 2
+      holdemInsuranceTypeLabel = '中暗三保险'
+      const codes = underdogSetMiningCodes(underdog, playerA, playerB)
+      holdemSetMiningCardsDisplay = codes.map(formatCardCodeForDisplay).join(' ')
+      holdemPairRuleHint = '中暗三保险：公共牌发出落后方对子剩余牌即赔付。'
+      algorithmStatus = `${holdemPairRuleHint} 命中概率按河牌前 5 张公共牌中是否出现保险牌估算；赔率固定 4.5 倍，现场可调整。`
+    } else {
+      defaultOdds = 3.5
+      holdemInsuranceTypeLabel = '普通反超保险'
+      holdemSetMiningCardsDisplay = null
+      holdemPairRuleHint = '普通反超保险，保障到河牌'
+      hitProbability = 0
+      algorithmStatus = `${holdemPairRuleHint} 赔率固定 3.5 倍，现场可调整。`
+    }
+  } else {
+    defaultOdds = getDefaultOdds(input.gameType, outs)
+  }
+
   const breakEvenInsurance = calculateBreakEvenInsurance(input.allInAmount, defaultOdds)
   const fullPotInsurance = calculateFullPotInsurance(input.potAmount, defaultOdds)
-  const advice = defaultOdds
-    ? '可按默认赔率参考买保本或买满池，最终以现场确认赔率为准'
-    : '默认赔率待确认，暂不建议按本工具直接定价'
+
+  let advice: string
+  if (input.gameType === 'holdem') {
+    if (pairVsPair && holdemPreflopPairSpecial === 'setMining45') {
+      advice = defaultOdds
+        ? '中暗三保险：公共牌发出落后方对子剩余牌即赔付；可参考买保本、买满池，现场定价为准。'
+        : '赔率待确认，金额仅供参考。'
+    } else if (pairVsPair && holdemPreflopPairSpecial === 'overtake35') {
+      advice = defaultOdds
+        ? '普通反超保险：保障到河牌，落后方最终反超才赔付；可参考买保本、买满池，现场定价为准。'
+        : '赔率待确认，金额仅供参考。'
+    } else {
+      advice = defaultOdds ? '可参考买保本、买满池，现场定价为准。' : '赔率待确认，金额仅供参考。'
+    }
+  } else if (defaultOdds) {
+    advice = '可按默认赔率参考买保本或买满池，最终以现场确认赔率为准'
+  } else {
+    advice = '默认赔率待确认，暂不建议按本工具直接定价'
+  }
+
+  const oddsLineLabel =
+    input.gameType === 'holdem' && pairVsPair ? '赔率' : input.gameType === 'holdem' ? '自动匹配赔率' : '默认赔率'
+  const leaderHandDisplay =
+    input.gameType === 'holdem' ? formatCardSpaceStringForDisplay(input.playerAInput) : undefined
+  const underdogHandDisplay =
+    input.gameType === 'holdem' ? formatCardSpaceStringForDisplay(input.playerBInput) : undefined
+  const boardDisplay =
+    input.gameType === 'holdem' ? formatCardSpaceStringForDisplay(input.boardInput) : undefined
 
   const resultBase: Omit<InsuranceResult, 'resultText'> = {
     gameType: input.gameType,
@@ -610,6 +910,14 @@ export function calculateInsurance(input: InsuranceInput): {
     advice,
     algorithmStatus,
     outsDisplayLabel,
+    oddsLineLabel,
+    leaderHandDisplay,
+    underdogHandDisplay,
+    boardDisplay,
+    holdemPreflopPairSpecial,
+    holdemInsuranceTypeLabel,
+    holdemSetMiningCardsDisplay,
+    holdemPairRuleHint,
   }
   const result: InsuranceResult = {
     ...resultBase,
