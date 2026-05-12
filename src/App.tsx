@@ -296,7 +296,7 @@ function App() {
           <div className="result-grid">
             <ResultItem label="当前领先方" value={`玩家 ${result.leader}`} />
             <ResultItem label="当前落后方" value={`玩家 ${result.underdog}`} />
-            <ResultItem label="框架估算 outs" value={`${result.outs}`} />
+            <ResultItem label={result.outsDisplayLabel} value={`${result.outs}`} />
             <ResultItem label="保险命中概率" value={formatPercent(result.hitProbability)} />
             <ResultItem label="默认赔率" value={formatOdds(result.defaultOdds)} />
             <ResultItem label="剩余牌数" value={`${result.remainingCards}`} />
