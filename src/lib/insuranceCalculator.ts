@@ -333,6 +333,41 @@ function compareShowdown(playerA: Card[], playerB: Card[], board5: Card[]): numb
   return compareHandRank(bestHandFrom7(a7), bestHandFrom7(b7))
 }
 
+/** 奥马哈：4 张手牌 + 5 张公共牌，严格恰好 2 张来自手牌、3 张来自公共牌，取最佳 5 张牌力。 */
+export function evaluateOmahaHand(playerCards: Card[], boardCards: Card[]): HandRank {
+  if (playerCards.length !== 4 || boardCards.length !== 5) {
+    return [0] as HandRank
+  }
+  let best: HandRank | null = null
+  for (let a = 0; a < 4; a++) {
+    for (let b = a + 1; b < 4; b++) {
+      const hole2 = [playerCards[a]!, playerCards[b]!]
+      for (let i = 0; i < 5; i++) {
+        for (let j = i + 1; j < 5; j++) {
+          for (let k = j + 1; k < 5; k++) {
+            const five: Card[] = [...hole2, boardCards[i]!, boardCards[j]!, boardCards[k]!]
+            const r = evaluate5Cards(five)
+            if (!best || compareHandRank(r, best) > 0) {
+              best = r
+            }
+          }
+        }
+      }
+    }
+  }
+  return best ?? ([0] as HandRank)
+}
+
+/** 1 = A 赢，-1 = B 赢，0 = 平局；奥马哈严格 2+3。 */
+function compareOmahaShowdown(playerA: Card[], playerB: Card[], board5: Card[]): number {
+  return compareHandRank(evaluateOmahaHand(playerA, board5), evaluateOmahaHand(playerB, board5))
+}
+
+function remainingDeckOmaha(used: Card[]): Card[] {
+  const usedSet = new Set(used.map((c) => c.code))
+  return buildDeck('omaha').filter((c) => !usedSet.has(c.code))
+}
+
 function remainingDeckHoldem(used: Card[]): Card[] {
   const usedSet = new Set(used.map((c) => c.code))
   return buildDeck('holdem').filter((c) => !usedSet.has(c.code))
@@ -421,6 +456,123 @@ function enumerateHoldem(
     const board5 = [...board, ...combo]
     total += 1
     const cmp = compareShowdown(playerA, playerB, board5)
+    if (cmp === 0) {
+      ties += 1
+    } else {
+      const winner: Player = cmp > 0 ? 'A' : 'B'
+      if (winner === underdog) {
+        underdogWins += 1
+      }
+    }
+  })
+
+  return { total, underdogWins, ties }
+}
+
+function countOmahaOuts(
+  underdog: Player,
+  playerA: Card[],
+  playerB: Card[],
+  board: Card[],
+): number {
+  if (board.length >= 5) {
+    return 0
+  }
+  const baseUsed = [...playerA, ...playerB, ...board]
+
+  if (board.length === 4) {
+    const deck = remainingDeckOmaha(baseUsed)
+    let count = 0
+    for (const river of deck) {
+      const board5 = [...board, river]
+      const cmp = compareOmahaShowdown(playerA, playerB, board5)
+      if (cmp === 0) {
+        continue
+      }
+      const winner: Player = cmp > 0 ? 'A' : 'B'
+      if (winner === underdog) {
+        count += 1
+      }
+    }
+    return count
+  }
+
+  if (board.length === 3) {
+    const deck = remainingDeckOmaha(baseUsed)
+    let count = 0
+    for (const turn of deck) {
+      const usedTurn = [...baseUsed, turn]
+      const deck2 = remainingDeckOmaha(usedTurn)
+      let hasWinningRiver = false
+      for (const river of deck2) {
+        const board5 = [...board, turn, river]
+        const cmp = compareOmahaShowdown(playerA, playerB, board5)
+        if (cmp === 0) {
+          continue
+        }
+        const winner: Player = cmp > 0 ? 'A' : 'B'
+        if (winner === underdog) {
+          hasWinningRiver = true
+          break
+        }
+      }
+      if (hasWinningRiver) {
+        count += 1
+      }
+    }
+    return count
+  }
+
+  const goodCodes = new Set<string>()
+  const deck48 = remainingDeckOmaha([...playerA, ...playerB])
+  forEachCombination(deck48, 5, (combo) => {
+    const board5 = combo
+    const cmp = compareOmahaShowdown(playerA, playerB, board5)
+    if (cmp === 0) {
+      return
+    }
+    const winner: Player = cmp > 0 ? 'A' : 'B'
+    if (winner === underdog) {
+      for (const c of board5) {
+        goodCodes.add(c.code)
+      }
+    }
+  })
+  return goodCodes.size
+}
+
+function enumerateOmaha(
+  underdog: Player,
+  playerA: Card[],
+  playerB: Card[],
+  board: Card[],
+): HoldemEnumResult {
+  const deck = remainingDeckOmaha([...playerA, ...playerB, ...board])
+  const k = 5 - board.length
+
+  if (k <= 0) {
+    const cmp = compareOmahaShowdown(playerA, playerB, board)
+    let underdogWins = 0
+    let ties = 0
+    if (cmp === 0) {
+      ties = 1
+    } else {
+      const winner: Player = cmp > 0 ? 'A' : 'B'
+      if (winner === underdog) {
+        underdogWins = 1
+      }
+    }
+    return { total: 1, underdogWins, ties }
+  }
+
+  let total = 0
+  let underdogWins = 0
+  let ties = 0
+
+  forEachCombination(deck, k, (combo) => {
+    const board5 = [...board, ...combo]
+    total += 1
+    const cmp = compareOmahaShowdown(playerA, playerB, board5)
     if (cmp === 0) {
       ties += 1
     } else {
@@ -547,11 +699,19 @@ export function validateCards(
   const handSize = gameType === 'omaha' ? 4 : 2
 
   if (playerA.length !== handSize) {
-    errors.push(`玩家 A 手牌需要 ${handSize} 张`)
+    errors.push(
+      gameType === 'omaha'
+        ? `奥马哈领先方（玩家 A）手牌必须为 4 张（当前 ${playerA.length} 张）`
+        : `玩家 A 手牌需要 ${handSize} 张`,
+    )
   }
 
   if (playerB.length !== handSize) {
-    errors.push(`玩家 B 手牌需要 ${handSize} 张`)
+    errors.push(
+      gameType === 'omaha'
+        ? `奥马哈落后方（玩家 B）手牌必须为 4 张（当前 ${playerB.length} 张）`
+        : `玩家 B 手牌需要 ${handSize} 张`,
+    )
   }
 
   if (board.length > 5) {
@@ -562,6 +722,11 @@ export function validateCards(
     const bl = board.length
     if (bl !== 0 && bl !== 3 && bl !== 4 && bl !== 5) {
       errors.push('德州扑克公共牌数量仅允许 0、3、4、5 张（不允许 1 或 2 张）')
+    }
+  } else if (gameType === 'omaha') {
+    const bl = board.length
+    if (bl !== 0 && bl !== 3 && bl !== 4 && bl !== 5) {
+      errors.push('奥马哈公共牌数量必须为 0、3、4 或 5')
     }
   } else if (board.length > 5) {
     /* covered above */
@@ -783,6 +948,21 @@ export function calculateInsurance(input: InsuranceInput): {
     }
   }
 
+  if (input.gameType === 'omaha') {
+    if (input.street === 'preflop' && board.length !== 0) {
+      errors.push('奥马哈翻前公共牌必须为 0 张')
+    }
+    if (input.street === 'flop' && board.length !== 3) {
+      errors.push('奥马哈翻牌公共牌必须为 3 张')
+    }
+    if (input.street === 'turn' && board.length !== 4) {
+      errors.push('奥马哈转牌公共牌必须为 4 张')
+    }
+    if (input.street === 'river' && board.length !== 5) {
+      errors.push('奥马哈河牌公共牌必须为 5 张')
+    }
+  }
+
   if (errors.length > 0) {
     return { errors, result: null }
   }
@@ -793,6 +973,7 @@ export function calculateInsurance(input: InsuranceInput): {
 
   const holdemAlgoShort = HOLDEM_RESULT_FOOTER
   const frameworkStatus = '当前为计算框架与基础估算，精确枚举算法待下一阶段接入'
+  const omahaAlgoStatus = '奥马哈已按严格 2 张手牌 + 3 张公共牌枚举。'
 
   const pairVsPair =
     input.gameType === 'holdem' &&
@@ -827,6 +1008,12 @@ export function calculateInsurance(input: InsuranceInput): {
       }
       outsDisplayLabel = '当前街直接 outs'
     }
+  } else if (input.gameType === 'omaha') {
+    const enumResult = enumerateOmaha(underdog, playerA, playerB, board)
+    outs = countOmahaOuts(underdog, playerA, playerB, board)
+    hitProbability = enumResult.total > 0 ? enumResult.underdogWins / enumResult.total : 0
+    algorithmStatus = omahaAlgoStatus
+    outsDisplayLabel = board.length >= 5 ? 'OUTS' : '下一张有效 OUTS'
   } else {
     outs = estimateOuts(input.gameType, input.leader, playerA, playerB, board)
     hitProbability = calculateHitProbability(outs, remainingCards)
@@ -882,6 +1069,10 @@ export function calculateInsurance(input: InsuranceInput): {
     } else {
       advice = defaultOdds ? '可参考买保本、买满池，现场定价为准。' : '赔率待确认，金额仅供参考。'
     }
+  } else if (input.gameType === 'omaha') {
+    advice = defaultOdds
+      ? '奥马哈已按严格 2+3 枚举；可参考买保本或买满池，最终以现场确认赔率为准'
+      : '赔率待确认，金额仅供参考。'
   } else if (defaultOdds) {
     advice = '可按默认赔率参考买保本或买满池，最终以现场确认赔率为准'
   } else {
