@@ -999,3 +999,203 @@ label.holdem-street-row {
   word-break: break-word;
   color: #b8d4c8;
 }
+
+/* ========== Stage 4.5：手机端 UI 统一与截图友好（仅样式） ========== */
+
+.app-shell-safe {
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
+.app-shell-safe *,
+.app-shell-safe *::before,
+.app-shell-safe *::after {
+  box-sizing: border-box;
+}
+
+@media (max-width: 400px) {
+  .app-shell {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+}
+
+/* 顶部游戏切换：更像分段控件 */
+.game-tabs-dock {
+  margin: 14px 0 12px;
+  padding: 10px 8px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.28), rgba(0, 0, 0, 0.14));
+  border: 1px solid rgba(215, 181, 109, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.game-tabs-dock .tab {
+  min-height: 50px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+  padding: 8px 6px;
+}
+
+.game-tabs-dock .tab.is-active {
+  box-shadow:
+    0 4px 14px rgba(215, 181, 109, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  transform: none;
+}
+
+/* 表单整体分区 */
+.form-panel-unified {
+  padding: 16px 14px 18px;
+}
+
+.game-form-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.game-form-body > .holdem-hands-row {
+  padding: 12px 10px 12px;
+  margin-top: 2px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.game-form-body > .holdem-board-wrap {
+  margin-top: 10px;
+  padding: 10px 10px 8px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.game-form-body > .holdem-fields-compact {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(215, 181, 109, 0.18);
+}
+
+.game-form-body > .format-tip {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.game-form-body > .holdem-picker-sheet {
+  margin-top: 8px;
+}
+
+/* 改牌按钮统一略放大 */
+.pick-toggle-compact {
+  min-height: 40px;
+  padding: 0 12px;
+  font-size: 13px;
+  border-radius: 10px;
+}
+
+/* 已选牌：牌粒感 */
+.playing-card-chip {
+  border-radius: 10px !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.12), rgba(215, 181, 109, 0.16)) !important;
+}
+
+/* 错误提示更显眼 */
+.error-box-emphasis {
+  margin-top: 4px;
+  gap: 6px;
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.45;
+  font-weight: 650;
+  border: 1px solid rgba(255, 170, 150, 0.55);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+}
+
+.primary-button {
+  min-height: 50px;
+  border-radius: 12px;
+  font-size: 16px;
+  letter-spacing: 0.04em;
+}
+
+.copy-button {
+  border-radius: 12px;
+  min-height: 48px;
+}
+
+/* 结果卡片：截图友好 */
+.result-card-screenshot {
+  border-radius: 16px;
+  padding: 16px 14px 18px;
+  border: 1px solid rgba(215, 181, 109, 0.3);
+}
+
+.result-card-screenshot .holdem-result-compact .holdem-rcell:nth-child(1) strong,
+.result-card-screenshot .holdem-result-compact .holdem-rcell:nth-child(2) strong {
+  font-size: 20px;
+  font-weight: 900;
+  color: #fff3c4;
+}
+
+.result-card-screenshot .holdem-rcell:nth-child(3) strong,
+.result-card-screenshot .holdem-rcell:nth-child(4) strong,
+.result-card-screenshot .holdem-rcell:nth-child(5) strong {
+  font-size: 17px;
+}
+
+.holdem-out-cards-line {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.18);
+  border-left: 3px solid rgba(215, 181, 109, 0.45);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+/* 拆分购买：标签 + 弱化 0 outs */
+.omaha-split-chip.is-zero-dim:not(.is-on) {
+  opacity: 0.4;
+  font-weight: 650;
+  border-style: dashed;
+}
+
+.omaha-split-chip.is-on {
+  box-shadow: 0 0 0 2px rgba(215, 181, 109, 0.35);
+}
+
+.split-purchase-hint {
+  margin: 2px 0 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #c5dfd0;
+  background: rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.omaha-split-bringback-distinguished {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(215, 181, 109, 0.07);
+  border: 1px dashed rgba(215, 181, 109, 0.38);
+}
+
+.omaha-split-bringback-distinguished span {
+  color: #fff8df;
+  font-weight: 800;
+}
+
+.segment {
+  min-height: 44px;
+  border-radius: 10px;
+}

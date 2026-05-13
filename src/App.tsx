@@ -30,6 +30,18 @@ const HOLDEM_SUITS = ['h', 's', 'd', 'c'] as const
 
 const HOLDEM_GRID_RANKS = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'] as const
 
+/** 拆分购买类型按钮：0 outs 时弱化样式（不改变点击逻辑）。 */
+function splitPurchaseChipClass(isOn: boolean, outsInCategory: number): string {
+  const base = 'omaha-split-chip'
+  if (isOn) {
+    return `${base} is-on`
+  }
+  if (outsInCategory === 0) {
+    return `${base} is-zero-dim`
+  }
+  return base
+}
+
 function buildHoldemClipboardTextUi(
   result: InsuranceResult,
   customBuyText: string,
@@ -1084,7 +1096,7 @@ function App() {
   }
 
   return (
-    <main className="app-shell">
+    <main className="app-shell app-shell-safe">
       <header className="app-header">
         <h1 className="app-title-main">扑克保险 V1</h1>
         {activeGame !== 'holdem' ? (
@@ -1092,12 +1104,14 @@ function App() {
         ) : null}
       </header>
 
-      <nav className="game-tabs" aria-label="游戏类型">
+      <nav className="game-tabs game-tabs-dock" aria-label="游戏类型">
         {gameConfigs.map((game) => (
           <button
             className={game.type === activeGame ? 'tab is-active' : 'tab'}
             key={game.type}
             type="button"
+            role="tab"
+            aria-selected={game.type === activeGame}
             onClick={() => {
               setActiveGame(game.type)
               setResult(null)
@@ -1159,7 +1173,7 @@ function App() {
       </nav>
 
       <section
-        className={`panel form-panel${activeGame === 'holdem' || activeGame === 'omaha' || activeGame === 'shortDeck' ? ' form-panel-holdem' : ''}`}
+        className={`panel form-panel form-panel-unified${activeGame === 'holdem' || activeGame === 'omaha' || activeGame === 'shortDeck' ? ' form-panel-holdem' : ''}`}
       >
         {activeGame === 'holdem' ? (
           <HoldemForm
@@ -1212,7 +1226,7 @@ function App() {
         )}
 
         {errors.length > 0 && (
-          <div className="error-box">
+          <div className="error-box error-box-emphasis" role="alert">
             {errors.map((error) => (
               <p key={error}>{error}</p>
             ))}
@@ -1225,7 +1239,7 @@ function App() {
       </section>
 
       {result && (
-        <section className="result-card" aria-label="保险计算结果">
+        <section className="result-card result-card-screenshot" aria-label="保险计算结果">
           {result.gameType === 'omaha' && result.omahaCompactLayout ? (
             <div className="result-card-header result-card-header-holdem">
               <h2 className="holdem-game-title">{gameLabels.omaha}保险结果</h2>
@@ -1286,11 +1300,12 @@ function App() {
                   <div className="omaha-split-chips" role="group" aria-label="反超类型">
                     {OMAHA_SPLIT_PURCHASE_OPTIONS.map((opt) => {
                       const on = omahaSplitSelected.includes(opt.id)
+                      const outsN = omahaSplitUi.metrics?.outsByCategory?.[opt.id] ?? 0
                       return (
                         <button
                           key={opt.id}
                           type="button"
-                          className={on ? 'omaha-split-chip is-on' : 'omaha-split-chip'}
+                          className={splitPurchaseChipClass(on, outsN)}
                           aria-pressed={on}
                           onClick={() => toggleOmahaSplitType(opt.id)}
                         >
@@ -1310,6 +1325,9 @@ function App() {
 
                   {!omahaSplitUi.pick && !omahaSplitUi.badBoard ? (
                     <>
+                      <p className="split-purchase-hint">
+                        金额仅作用于上方已选的「反超类型」，与下方「平分带回」不同。
+                      </p>
                       <div className="holdem-custom-buy-row omaha-split-buy-row">
                         <span className="holdem-custom-buy-label">购买金额：</span>
                         <input
@@ -1393,7 +1411,7 @@ function App() {
                         </p>
                       ) : null}
 
-                      <label className="omaha-split-bringback">
+                      <label className="omaha-split-bringback omaha-split-bringback-distinguished">
                         <input
                           type="checkbox"
                           checked={omahaSplitBringback}
@@ -1476,11 +1494,12 @@ function App() {
                   <div className="omaha-split-chips" role="group" aria-label="短牌反超类型">
                     {SHORT_DECK_SPLIT_PURCHASE_OPTIONS.map((opt) => {
                       const on = shortDeckSplitSelected.includes(opt.id)
+                      const outsN = shortDeckSplitUi.metrics?.outsByCategory?.[opt.id] ?? 0
                       return (
                         <button
                           key={opt.id}
                           type="button"
-                          className={on ? 'omaha-split-chip is-on' : 'omaha-split-chip'}
+                          className={splitPurchaseChipClass(on, outsN)}
                           aria-pressed={on}
                           onClick={() => toggleShortDeckSplitType(opt.id)}
                         >
@@ -1500,6 +1519,9 @@ function App() {
 
                   {!shortDeckSplitUi.pick && !shortDeckSplitUi.badBoard ? (
                     <>
+                      <p className="split-purchase-hint">
+                        金额仅作用于上方已选的「反超类型」，与下方「平分带回」不同。
+                      </p>
                       <div className="holdem-custom-buy-row omaha-split-buy-row">
                         <span className="holdem-custom-buy-label">购买金额：</span>
                         <input
@@ -1583,7 +1605,7 @@ function App() {
                         </p>
                       ) : null}
 
-                      <label className="omaha-split-bringback">
+                      <label className="omaha-split-bringback omaha-split-bringback-distinguished">
                         <input
                           type="checkbox"
                           checked={shortDeckSplitBringback}
@@ -1734,11 +1756,12 @@ function App() {
                   <div className="omaha-split-chips" role="group" aria-label="反超类型">
                     {OMAHA_SPLIT_PURCHASE_OPTIONS.map((opt) => {
                       const on = holdemSplitSelected.includes(opt.id)
+                      const outsN = holdemSplitUi.metrics?.outsByCategory?.[opt.id] ?? 0
                       return (
                         <button
                           key={opt.id}
                           type="button"
-                          className={on ? 'omaha-split-chip is-on' : 'omaha-split-chip'}
+                          className={splitPurchaseChipClass(on, outsN)}
                           aria-pressed={on}
                           onClick={() => toggleHoldemSplitType(opt.id)}
                         >
@@ -1758,6 +1781,9 @@ function App() {
 
                   {!holdemSplitUi.pick && !holdemSplitUi.badBoard ? (
                     <>
+                      <p className="split-purchase-hint">
+                        金额仅作用于上方已选的「反超类型」，与下方「平分带回」不同。
+                      </p>
                       <div className="holdem-custom-buy-row omaha-split-buy-row">
                         <span className="holdem-custom-buy-label">购买金额：</span>
                         <input
@@ -1841,7 +1867,7 @@ function App() {
                         </p>
                       ) : null}
 
-                      <label className="omaha-split-bringback">
+                      <label className="omaha-split-bringback omaha-split-bringback-distinguished">
                         <input
                           type="checkbox"
                           checked={holdemSplitBringback}
@@ -1955,7 +1981,7 @@ function ShortDeckForm({
   }, [form.street, onStreetChange])
 
   return (
-    <>
+    <div className="game-form-body">
       <p className="format-tip short-deck-format-tip">
         只可选 6–A（36 张），无 2–5。花色：h 红桃、s 黑桃、d 方块、c 梅花。
       </p>
@@ -2007,7 +2033,7 @@ function ShortDeckForm({
                 <button
                   key={code}
                   type="button"
-                  className="holdem-chip holdem-chip-sm"
+                  className="holdem-chip holdem-chip-sm playing-card-chip"
                   onClick={() => onToggleCard('board', code)}
                 >
                   {formatCardCodeForDisplay(code)}
@@ -2094,7 +2120,7 @@ function ShortDeckForm({
       </div>
 
       {pickerHint ? <p className="picker-hint">{pickerHint}</p> : null}
-    </>
+    </div>
   )
 }
 
@@ -2132,7 +2158,7 @@ function OmahaForm({
   }, [form.street, onStreetChange])
 
   return (
-    <>
+    <div className="game-form-body">
       <div className="holdem-hands-row">
         <HoldemHandMini
           title="领先方"
@@ -2181,7 +2207,7 @@ function OmahaForm({
                 <button
                   key={code}
                   type="button"
-                  className="holdem-chip holdem-chip-sm"
+                  className="holdem-chip holdem-chip-sm playing-card-chip"
                   onClick={() => onToggleCard('board', code)}
                 >
                   {formatCardCodeForDisplay(code)}
@@ -2267,7 +2293,7 @@ function OmahaForm({
       </div>
 
       {pickerHint ? <p className="picker-hint">{pickerHint}</p> : null}
-    </>
+    </div>
   )
 }
 
@@ -2300,7 +2326,7 @@ function HoldemForm({
   const maxBoard = holdemMaxBoardCards(form.street)
 
   return (
-    <>
+    <div className="game-form-body">
       <div className="holdem-hands-row">
         <HoldemHandMini
           title="领先方"
@@ -2347,7 +2373,7 @@ function HoldemForm({
                 <button
                   key={code}
                   type="button"
-                  className="holdem-chip holdem-chip-sm"
+                  className="holdem-chip holdem-chip-sm playing-card-chip"
                   onClick={() => onToggleCard('board', code)}
                 >
                   {formatCardCodeForDisplay(code)}
@@ -2446,7 +2472,7 @@ function HoldemForm({
       ) : null}
 
       {pickerHint ? <p className="picker-hint">{pickerHint}</p> : null}
-    </>
+    </div>
   )
 }
 
@@ -2480,7 +2506,7 @@ function HoldemHandMini({
           <span className="holdem-selected-empty">未选择</span>
         ) : (
           selectedCodes.map((code) => (
-            <button key={code} type="button" className="holdem-chip holdem-chip-sm" onClick={() => onToggle(code)}>
+            <button key={code} type="button" className="holdem-chip holdem-chip-sm playing-card-chip" onClick={() => onToggle(code)}>
               {formatCardCodeForDisplay(code)}
             </button>
           ))
