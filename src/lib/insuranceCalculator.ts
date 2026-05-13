@@ -49,6 +49,12 @@ export type InsuranceResult = {
   holdemPairRuleHint?: string | null
   /** 奥马哈结果卡片使用与德州类似的紧凑布局 */
   omahaCompactLayout?: boolean
+  /** 下一张公共牌直接反超的牌（已排序展示）；无则 UI 显示「无」 */
+  directOutCardCodesDisplay?: string
+  /** 下一张公共牌可导致平分的牌（已排序展示）；无则 UI 显示「无」 */
+  chopOutCardCodesDisplay?: string
+  /** 下一张公共牌可导致平分的去重张数（不计入基础 outs） */
+  chopOutsCount?: number
 }
 
 /** 奥马哈「按反超类型拆分购买」牌型分类（落后方最终成牌 / 平分） */
@@ -138,21 +144,19 @@ function buildOmahaNextCardCategoryMap(
   const deck = remainingDeckOmaha(baseUsed)
 
   if (street === 'flop' && board.length === 3) {
-    forEachCombination(deck, 2, (combo) => {
-      const turn = combo[0]!
-      const river = combo[1]!
-      const board5 = [...board, turn, river]
-      const cmp = compareOmahaShowdown(playerA, playerB, board5)
+    for (const turn of deck) {
+      const board4 = [...board, turn]
+      const cmp = compareOmahaPartialShowdown(playerA, playerB, board4)
       if (cmp === 0) {
         addCat(turn.code, 'tie')
       } else {
         const winner: Player = cmp > 0 ? 'A' : 'B'
         if (winner === underdog) {
-          const hr = evaluateOmahaHand(udHole, board5)
+          const hr = evaluateOmahaHandFlexible(udHole, board4)
           addCat(turn.code, omahaSplitCategoryFromHandRank(hr))
         }
       }
-    })
+    }
     return nextToCats
   }
 
@@ -181,12 +185,92 @@ export type OmahaSplitSelectionMetrics = {
   nextStreetLabel: '转牌' | '河牌'
   /** 每种类型对应的去重下一张牌张数（类型间可重叠） */
   outsByCategory: Partial<Record<OmahaSplitCategoryId, number>>
-  /** 勾选类型的下一张牌 code 并集大小 */
+  /** 勾选类型的下一张牌并集大小（反超与平分合并去重，用于所选赔率） */
   selectedOuts: number
   /** 勾选并集对应默认赔率 */
   selectedOdds: OddsValue
   /** 并集 codes（排序，便于调试/展示） */
   unionCodes: string[]
+  /** 可出现平分的下一张牌去重张数（不计入基础 OUTS） */
+  tieOutsCount: number
+  /** 勾选的非平分类型对应下一张牌并集张数 */
+  selectedWinTypesUnionCount: number
+  /** 各类型对应下一张牌明细（与直接 OUTS 口径一致） */
+  categoryCardsDisplay: Partial<Record<OmahaSplitCategoryId, string>>
+}
+
+function finalizeSplitPurchaseMetrics(
+  gameType: 'holdem' | 'omaha',
+  nextToCats: Map<string, Set<OmahaSplitCategoryId>>,
+  street: 'flop' | 'turn',
+  uniqSelected: OmahaSplitCategoryId[],
+): OmahaSplitSelectionMetrics {
+  const outsByCategory: Partial<Record<OmahaSplitCategoryId, number>> = {}
+  for (const id of uniqSelected) {
+    let n = 0
+    for (const [, cats] of nextToCats) {
+      if (cats.has(id)) {
+        n += 1
+      }
+    }
+    outsByCategory[id] = n
+  }
+
+  const union = new Set<string>()
+  for (const [code, cats] of nextToCats) {
+    for (const sel of uniqSelected) {
+      if (cats.has(sel)) {
+        union.add(code)
+        break
+      }
+    }
+  }
+
+  const nonTieSelected = uniqSelected.filter((id) => id !== 'tie')
+  const winPickUnion = new Set<string>()
+  for (const [code, cats] of nextToCats) {
+    for (const id of nonTieSelected) {
+      if (cats.has(id)) {
+        winPickUnion.add(code)
+        break
+      }
+    }
+  }
+
+  let tieOutsCount = 0
+  for (const [, cats] of nextToCats) {
+    if (cats.has('tie')) {
+      tieOutsCount += 1
+    }
+  }
+
+  const selectedOuts = union.size
+  const selectedOdds = getDefaultOdds(gameType, selectedOuts)
+
+  const categoryCardsDisplay: Partial<Record<OmahaSplitCategoryId, string>> = {}
+  for (const opt of OMAHA_SPLIT_PURCHASE_OPTIONS) {
+    const codes: string[] = []
+    for (const [code, cats] of nextToCats) {
+      if (cats.has(opt.id)) {
+        codes.push(code)
+      }
+    }
+    const uniqSorted = [...new Set(codes)].sort()
+    if (uniqSorted.length > 0) {
+      categoryCardsDisplay[opt.id] = uniqSorted.map(formatCardCodeForDisplay).join(' ')
+    }
+  }
+
+  return {
+    nextStreetLabel: street === 'flop' ? '转牌' : '河牌',
+    outsByCategory,
+    selectedOuts,
+    selectedOdds,
+    unionCodes: [...union].sort(),
+    tieOutsCount,
+    selectedWinTypesUnionCount: winPickUnion.size,
+    categoryCardsDisplay,
+  }
 }
 
 /**
@@ -212,37 +296,95 @@ export function computeOmahaSplitSelectionMetrics(
   }
 
   const nextToCats = buildOmahaNextCardCategoryMap(underdog, playerA, playerB, board, street)
-  const outsByCategory: Partial<Record<OmahaSplitCategoryId, number>> = {}
-  for (const id of uniqSelected) {
-    let n = 0
-    for (const [, cats] of nextToCats) {
-      if (cats.has(id)) {
-        n += 1
+  return finalizeSplitPurchaseMetrics('omaha', nextToCats, street, uniqSelected)
+}
+
+/**
+ * 德州普通翻牌 / 转牌：下一张公共牌 code → 可能出现的反超 / 平分类型（与奥马哈相同去重语义）。
+ */
+function buildHoldemNextCardCategoryMap(
+  underdog: Player,
+  playerA: Card[],
+  playerB: Card[],
+  board: Card[],
+  street: 'flop' | 'turn',
+): Map<string, Set<OmahaSplitCategoryId>> {
+  const nextToCats = new Map<string, Set<OmahaSplitCategoryId>>()
+  const udHole = underdogHoleCards(underdog, playerA, playerB)
+
+  function addCat(nextCode: string, cat: OmahaSplitCategoryId) {
+    let s = nextToCats.get(nextCode)
+    if (!s) {
+      s = new Set()
+      nextToCats.set(nextCode, s)
+    }
+    s.add(cat)
+  }
+
+  const baseUsed = [...playerA, ...playerB, ...board]
+  const deck = remainingDeckHoldem(baseUsed)
+
+  if (street === 'flop' && board.length === 3) {
+    for (const turn of deck) {
+      const board4 = [...board, turn]
+      const cmp = comparePartialShowdown(playerA, playerB, board4)
+      if (cmp === 0) {
+        addCat(turn.code, 'tie')
+      } else {
+        const winner: Player = cmp > 0 ? 'A' : 'B'
+        if (winner === underdog) {
+          const hr = bestHandFrom6([...udHole, ...board4])
+          addCat(turn.code, omahaSplitCategoryFromHandRank(hr))
+        }
       }
     }
-    outsByCategory[id] = n
+    return nextToCats
   }
 
-  const union = new Set<string>()
-  for (const [code, cats] of nextToCats) {
-    for (const sel of uniqSelected) {
-      if (cats.has(sel)) {
-        union.add(code)
-        break
+  if (street === 'turn' && board.length === 4) {
+    for (const river of deck) {
+      const board5 = [...board, river]
+      const cmp = compareShowdown(playerA, playerB, board5)
+      if (cmp === 0) {
+        addCat(river.code, 'tie')
+      } else {
+        const winner: Player = cmp > 0 ? 'A' : 'B'
+        if (winner === underdog) {
+          const hr = bestHandFrom7([...udHole, ...board5])
+          addCat(river.code, omahaSplitCategoryFromHandRank(hr))
+        }
       }
     }
+    return nextToCats
   }
 
-  const selectedOuts = union.size
-  const selectedOdds = getDefaultOdds('omaha', selectedOuts)
+  return nextToCats
+}
 
-  return {
-    nextStreetLabel: street === 'flop' ? '转牌' : '河牌',
-    outsByCategory,
-    selectedOuts,
-    selectedOdds,
-    unionCodes: [...union].sort(),
+/** 德州普通翻牌 / 转牌拆分购买指标（结构与奥马哈一致，赔率走 holdem 表）。 */
+export type HoldemSplitSelectionMetrics = OmahaSplitSelectionMetrics
+
+export function computeHoldemSplitSelectionMetrics(
+  underdog: Player,
+  playerA: Card[],
+  playerB: Card[],
+  board: Card[],
+  street: 'flop' | 'turn',
+  selected: OmahaSplitCategoryId[],
+): HoldemSplitSelectionMetrics | null {
+  const uniqSelected = [...new Set(selected)]
+  if (uniqSelected.length === 0) {
+    return null
   }
+  if (street === 'flop' && board.length !== 3) {
+    return null
+  }
+  if (street === 'turn' && board.length !== 4) {
+    return null
+  }
+
+  const nextToCats = buildHoldemNextCardCategoryMap(underdog, playerA, playerB, board, street)
+  return finalizeSplitPurchaseMetrics('holdem', nextToCats, street, uniqSelected)
 }
 
 export const gameLabels: Record<GameType, string> = {
@@ -575,6 +717,54 @@ function compareOmahaShowdown(playerA: Card[], playerB: Card[], board5: Card[]):
   return compareHandRank(evaluateOmahaHand(playerA, board5), evaluateOmahaHand(playerB, board5))
 }
 
+/**
+ * 奥马哈：公共牌 3 或 4 张时，严格 2 张手牌 + 3 张公共牌取最佳 5 张牌力。
+ * 5 张公共牌时等价于 evaluateOmahaHand。
+ */
+function evaluateOmahaHandFlexible(playerCards: Card[], boardCards: Card[]): HandRank {
+  if (playerCards.length !== 4) {
+    return [0] as HandRank
+  }
+  const n = boardCards.length
+  if (n === 5) {
+    return evaluateOmahaHand(playerCards, boardCards)
+  }
+  if (n < 3) {
+    return [0] as HandRank
+  }
+  let best: HandRank | null = null
+  for (let a = 0; a < 4; a++) {
+    for (let b = a + 1; b < 4; b++) {
+      const hole2 = [playerCards[a]!, playerCards[b]!]
+      if (n === 3) {
+        const five: Card[] = [...hole2, boardCards[0]!, boardCards[1]!, boardCards[2]!]
+        const r = evaluate5Cards(five)
+        if (!best || compareHandRank(r, best) > 0) {
+          best = r
+        }
+      } else {
+        for (let omit = 0; omit < 4; omit++) {
+          const three = boardCards.filter((_, idx) => idx !== omit)
+          const five: Card[] = [...hole2, three[0]!, three[1]!, three[2]!]
+          const r = evaluate5Cards(five)
+          if (!best || compareHandRank(r, best) > 0) {
+            best = r
+          }
+        }
+      }
+    }
+  }
+  return best ?? ([0] as HandRank)
+}
+
+/** 1 = A 赢，-1 = B 赢，0 = 平局；奥马哈严格 2+3（公共牌 3 或 4 张）。 */
+function compareOmahaPartialShowdown(playerA: Card[], playerB: Card[], board: Card[]): number {
+  return compareHandRank(
+    evaluateOmahaHandFlexible(playerA, board),
+    evaluateOmahaHandFlexible(playerB, board),
+  )
+}
+
 function remainingDeckOmaha(used: Card[]): Card[] {
   const usedSet = new Set(used.map((c) => c.code))
   return buildDeck('omaha').filter((c) => !usedSet.has(c.code))
@@ -636,6 +826,34 @@ function countHoldemDirectOuts(
   return count
 }
 
+/** 下一张公共牌发出后：严格反超的牌 code、平分的牌 code（各去重、排序）。 */
+function collectHoldemNextCardOvertakeAndChopCodes(
+  underdog: Player,
+  playerA: Card[],
+  playerB: Card[],
+  board: Card[],
+): { overtake: string[]; chop: string[] } {
+  if (board.length >= 5) {
+    return { overtake: [], chop: [] }
+  }
+  const deck = remainingDeckHoldem([...playerA, ...playerB, ...board])
+  const overtake: string[] = []
+  const chop: string[] = []
+  for (const c of deck) {
+    const nextBoard = [...board, c]
+    const cmp = comparePartialShowdown(playerA, playerB, nextBoard)
+    if (cmp === 0) {
+      chop.push(c.code)
+    } else {
+      const winner: Player = cmp > 0 ? 'A' : 'B'
+      if (winner === underdog) {
+        overtake.push(c.code)
+      }
+    }
+  }
+  return { overtake: [...new Set(overtake)].sort(), chop: [...new Set(chop)].sort() }
+}
+
 function enumerateHoldem(
   underdog: Player,
   playerA: Card[],
@@ -681,16 +899,39 @@ function enumerateHoldem(
   return { total, underdogWins, ties }
 }
 
-/** 翻牌（3 张公共牌）：一次 C(41,2) 枚举同时得到 runout 统计与「下一张有效 OUTS」（下一张转牌按 code 去重）。 */
+/** 翻牌（3 张公共牌）：一次 C(41,2) 枚举得到 runout 统计；「下一张有效 OUTS」仅看下一张转牌是否已严格反超。 */
 function enumerateOmahaFlopWithOuts(
   underdog: Player,
   playerA: Card[],
   playerB: Card[],
   board3: Card[],
-): { total: number; underdogWins: number; ties: number; outs: number } {
+): {
+  total: number
+  underdogWins: number
+  ties: number
+  outs: number
+  overtakeCardCodesSorted: string[]
+  chopCardCodesSorted: string[]
+} {
   const baseUsed = [...playerA, ...playerB, ...board3]
   const deck = remainingDeckOmaha(baseUsed)
-  const goodTurnCodes = new Set<string>()
+  const overtakeCardCodesSorted: string[] = []
+  const chopCardCodesSorted: string[] = []
+  for (const turn of deck) {
+    const board4 = [...board3, turn]
+    const cmp = compareOmahaPartialShowdown(playerA, playerB, board4)
+    if (cmp === 0) {
+      chopCardCodesSorted.push(turn.code)
+    } else {
+      const winner: Player = cmp > 0 ? 'A' : 'B'
+      if (winner === underdog) {
+        overtakeCardCodesSorted.push(turn.code)
+      }
+    }
+  }
+  overtakeCardCodesSorted.sort()
+  chopCardCodesSorted.sort()
+
   let total = 0
   let underdogWins = 0
   let ties = 0
@@ -706,22 +947,36 @@ function enumerateOmahaFlopWithOuts(
       const winner: Player = cmp > 0 ? 'A' : 'B'
       if (winner === underdog) {
         underdogWins += 1
-        goodTurnCodes.add(turn.code)
       }
     }
   })
-  return { total, underdogWins, ties, outs: goodTurnCodes.size }
+  return {
+    total,
+    underdogWins,
+    ties,
+    outs: overtakeCardCodesSorted.length,
+    overtakeCardCodesSorted,
+    chopCardCodesSorted,
+  }
 }
 
-/** 转牌（4 张公共牌）：单遍枚举河牌，同时得到统计与 OUTS（下一张河牌按 code 去重）。 */
+/** 转牌（4 张公共牌）：单遍枚举河牌得统计与 OUTS（下一张河牌按 code 去重）。 */
 function enumerateOmahaTurnWithOuts(
   underdog: Player,
   playerA: Card[],
   playerB: Card[],
   board4: Card[],
-): { total: number; underdogWins: number; ties: number; outs: number } {
+): {
+  total: number
+  underdogWins: number
+  ties: number
+  outs: number
+  overtakeCardCodesSorted: string[]
+  chopCardCodesSorted: string[]
+} {
   const deck = remainingDeckOmaha([...playerA, ...playerB, ...board4])
-  const goodRiverCodes = new Set<string>()
+  const overtakeCardCodesSorted: string[] = []
+  const chopCardCodesSorted: string[] = []
   let total = 0
   let underdogWins = 0
   let ties = 0
@@ -731,15 +986,25 @@ function enumerateOmahaTurnWithOuts(
     const cmp = compareOmahaShowdown(playerA, playerB, board5)
     if (cmp === 0) {
       ties += 1
+      chopCardCodesSorted.push(river.code)
     } else {
       const winner: Player = cmp > 0 ? 'A' : 'B'
       if (winner === underdog) {
         underdogWins += 1
-        goodRiverCodes.add(river.code)
+        overtakeCardCodesSorted.push(river.code)
       }
     }
   }
-  return { total, underdogWins, ties, outs: goodRiverCodes.size }
+  overtakeCardCodesSorted.sort()
+  chopCardCodesSorted.sort()
+  return {
+    total,
+    underdogWins,
+    ties,
+    outs: overtakeCardCodesSorted.length,
+    overtakeCardCodesSorted,
+    chopCardCodesSorted,
+  }
 }
 
 export function parseCards(input: string): Card[] {
@@ -1145,6 +1410,11 @@ export function calculateInsurance(input: InsuranceInput): {
   let algorithmStatus: string
   let outsDisplayLabel: string
 
+  let omahaEnum:
+    | ReturnType<typeof enumerateOmahaFlopWithOuts>
+    | ReturnType<typeof enumerateOmahaTurnWithOuts>
+    | null = null
+
   if (input.gameType === 'holdem') {
     if (skipFullHoldemRunoutEnum) {
       outs = countHoldemDirectOuts(underdog, playerA, playerB, board)
@@ -1167,10 +1437,11 @@ export function calculateInsurance(input: InsuranceInput): {
       outsDisplayLabel = '当前街直接 outs'
     }
   } else if (input.gameType === 'omaha') {
-    const r =
+    omahaEnum =
       input.street === 'flop'
         ? enumerateOmahaFlopWithOuts(underdog, playerA, playerB, board)
         : enumerateOmahaTurnWithOuts(underdog, playerA, playerB, board)
+    const r = omahaEnum
     const enumResult: HoldemEnumResult = {
       total: r.total,
       underdogWins: r.underdogWins,
@@ -1217,6 +1488,30 @@ export function calculateInsurance(input: InsuranceInput): {
     }
   } else {
     defaultOdds = getDefaultOdds(input.gameType, outs)
+  }
+
+  let directOutCardCodesDisplay: string | undefined
+  let chopOutCardCodesDisplay: string | undefined
+  let chopOutsCount: number | undefined
+  if (input.gameType === 'holdem' && !pairVsPair) {
+    const h = collectHoldemNextCardOvertakeAndChopCodes(underdog, playerA, playerB, board)
+    chopOutsCount = h.chop.length
+    if (h.overtake.length > 0) {
+      directOutCardCodesDisplay = h.overtake.map(formatCardCodeForDisplay).join(' ')
+    }
+    if (h.chop.length > 0) {
+      chopOutCardCodesDisplay = h.chop.map(formatCardCodeForDisplay).join(' ')
+    }
+  } else if (omahaEnum) {
+    chopOutsCount = omahaEnum.chopCardCodesSorted.length
+    if (omahaEnum.overtakeCardCodesSorted.length > 0) {
+      directOutCardCodesDisplay = omahaEnum.overtakeCardCodesSorted
+        .map(formatCardCodeForDisplay)
+        .join(' ')
+    }
+    if (omahaEnum.chopCardCodesSorted.length > 0) {
+      chopOutCardCodesDisplay = omahaEnum.chopCardCodesSorted.map(formatCardCodeForDisplay).join(' ')
+    }
   }
 
   const breakEvenInsurance = calculateBreakEvenInsurance(input.allInAmount, defaultOdds)
@@ -1274,6 +1569,9 @@ export function calculateInsurance(input: InsuranceInput): {
     holdemSetMiningCardsDisplay,
     holdemPairRuleHint,
     omahaCompactLayout: input.gameType === 'omaha' ? true : undefined,
+    directOutCardCodesDisplay,
+    chopOutCardCodesDisplay,
+    chopOutsCount,
   }
   const result: InsuranceResult = {
     ...resultBase,

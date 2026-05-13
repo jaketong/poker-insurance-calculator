@@ -981,3 +981,21 @@ label.holdem-street-row {
   font-weight: 800;
   color: #8fdfb3;
 }
+
+.holdem-out-cards-line {
+  margin: 6px 0 0;
+  padding: 0 4px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #c8e6d8;
+  word-break: break-word;
+}
+
+.omaha-split-card-detail {
+  margin: 4px 0 0;
+  padding-left: 2px;
+  font-size: 11px;
+  line-height: 1.35;
+  word-break: break-word;
+  color: #b8d4c8;
+}
