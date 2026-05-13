@@ -3,6 +3,7 @@ import './App.css'
 import {
   calculateInsurance,
   collectHoldemResultLines,
+  computeOmahaSplitSelectionMetrics,
   formatAmount,
   formatOdds,
   formatPercent,
@@ -11,11 +12,13 @@ import {
   HOLDEM_GAME_NAME,
   HOLDEM_GRID_RANKS,
   isHoldemPreflopPairVsPairScenario,
+  OMAHA_SPLIT_PURCHASE_OPTIONS,
   parseCards,
   type GameType,
   type HoldemPreflopPairInsurance,
   type InsuranceInput,
   type InsuranceResult,
+  type OmahaSplitCategoryId,
   type Player,
   type Street,
 } from './lib/insuranceCalculator'
@@ -207,7 +210,9 @@ function App() {
   const [holdemPickerOpen, setHoldemPickerOpen] = useState<'leader' | 'underdog' | 'board' | null>(null)
   /** 仅在结果卡片内填写，与表单分离 */
   const [holdemResultCustomBuy, setHoldemResultCustomBuy] = useState('')
-  const [omahaResultCustomBuy, setOmahaResultCustomBuy] = useState('')
+  const [omahaSplitSelected, setOmahaSplitSelected] = useState<OmahaSplitCategoryId[]>([])
+  const [omahaSplitPurchase, setOmahaSplitPurchase] = useState('')
+  const [omahaSplitBringback, setOmahaSplitBringback] = useState(false)
   const [omahaPickerOpen, setOmahaPickerOpen] = useState<'leader' | 'underdog' | 'board' | null>(null)
   const holdemLenRef = useRef<{ l: number; u: number; b: number } | null>(null)
   const omahaLenRef = useRef<{ l: number; u: number; b: number } | null>(null)
@@ -335,32 +340,99 @@ function App() {
     }
   }, [result, holdemResultCustomBuy, forms.holdem.potAmount])
 
-  const omahaCustomPreview = useMemo(() => {
+  const omahaSplitUi = useMemo(() => {
     if (!result || result.gameType !== 'omaha' || !result.omahaCompactLayout) {
       return null
     }
-    const pot = Number(forms.omaha.potAmount)
-    const raw = omahaResultCustomBuy.trim()
-    if (!raw) {
-      return { kind: 'empty' as const }
+    const o = forms.omaha
+    const street: 'flop' | 'turn' = o.street === 'turn' ? 'turn' : 'flop'
+    const board = parseCards(o.boardInput)
+    const pa = parseCards(o.playerAInput)
+    const pb = parseCards(o.playerBInput)
+    const pot = Number(o.potAmount)
+    const uniq = [...new Set(omahaSplitSelected)]
+    if (uniq.length === 0) {
+      return { pick: true as const, pot }
     }
-    const amt = Number(raw)
-    if (!Number.isFinite(amt) || amt <= 0) {
-      return { kind: 'invalid' as const }
+    const metrics = computeOmahaSplitSelectionMetrics(result.underdog, pa, pb, board, street, uniq)
+    if (!metrics) {
+      return { pick: false as const, badBoard: true as const, uniq, pot }
     }
-    const odds = result.defaultOdds
-    if (!odds || odds <= 0) {
-      return { kind: 'pending' as const, amount: amt }
+    const raw = omahaSplitPurchase.trim()
+    const buyAmt = raw === '' ? null : Number(raw)
+    const buyValid = buyAmt !== null && Number.isFinite(buyAmt) && buyAmt > 0
+    const buyEmpty = raw === ''
+    const odds = metrics.selectedOdds
+    const payout = buyValid && odds && odds > 0 ? buyAmt! * odds : null
+    const potOk = Number.isFinite(pot) && pot > 0
+    const halfPot = potOk ? pot / 2 : null
+    const includesChop = uniq.includes('tie')
+    const onlyTie = uniq.length === 1 && uniq[0] === 'tie'
+    const zeroUnion = metrics.selectedOuts === 0
+    let status:
+      | 'ok'
+      | 'overPot'
+      | 'overChopHalf'
+      | 'oddsPending'
+      | 'invalidBuy'
+      | 'noTieOuts'
+      | 'noSelectedOuts' = 'ok'
+    let warnLine: string | null = null
+    if (!buyEmpty && !buyValid) {
+      status = 'invalidBuy'
+    } else if (zeroUnion) {
+      status = onlyTie ? 'noTieOuts' : 'noSelectedOuts'
+    } else if (buyValid && (!odds || odds <= 0)) {
+      status = 'oddsPending'
+    } else if (buyValid && payout !== null && potOk && odds && odds > 0) {
+      if (includesChop && halfPot !== null && payout > halfPot) {
+        status = 'overChopHalf'
+        warnLine = '平分赔付不能超过底池一半。'
+      } else if (!includesChop && payout > pot) {
+        status = 'overPot'
+        const maxBuy = pot / odds
+        warnLine = `预计赔付超过总底池，最多可买：${maxBuy.toFixed(2)}。`
+      }
     }
-    const payout = amt * odds
-    const exceeds = Number.isFinite(pot) && payout > pot
+    const bringbackAmt =
+      omahaSplitBringback && buyValid && odds && odds > 0 ? buyAmt! / odds : null
+    const detailLine = uniq
+      .map((id) => {
+        const lab = OMAHA_SPLIT_PURCHASE_OPTIONS.find((x) => x.id === id)?.label ?? id
+        const n = metrics.outsByCategory[id] ?? 0
+        return `${lab}${n}`
+      })
+      .join('·')
     return {
-      kind: exceeds ? ('over' as const) : ('ok' as const),
-      amount: amt,
+      pick: false as const,
+      badBoard: false as const,
+      uniq,
+      pot,
+      metrics,
+      buyEmpty,
+      buyValid,
+      buyAmt,
       payout,
-      maxBuyDisplay: formatAmount(result.fullPotInsurance),
+      odds,
+      status,
+      warnLine,
+      includesChop,
+      halfPot,
+      bringbackAmt,
+      detailLine,
+      zeroUnion,
     }
-  }, [result, omahaResultCustomBuy, forms.omaha.potAmount])
+  }, [
+    result,
+    forms.omaha,
+    omahaSplitSelected,
+    omahaSplitPurchase,
+    omahaSplitBringback,
+  ])
+
+  function toggleOmahaSplitType(id: OmahaSplitCategoryId) {
+    setOmahaSplitSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
 
   function updateForm(field: keyof FormState, value: string) {
     setPickerHint('')
@@ -594,7 +666,9 @@ function App() {
         setHoldemResultCustomBuy('')
       }
       if (activeGame === 'omaha') {
-        setOmahaResultCustomBuy('')
+        setOmahaSplitSelected([])
+        setOmahaSplitPurchase('')
+        setOmahaSplitBringback(false)
       }
     }
 
@@ -639,7 +713,9 @@ function App() {
               setHoldemPickerOpen(null)
               setOmahaPickerOpen(null)
               setHoldemResultCustomBuy('')
-              setOmahaResultCustomBuy('')
+              setOmahaSplitSelected([])
+              setOmahaSplitPurchase('')
+              setOmahaSplitBringback(false)
               if (game.type === 'omaha') {
                 setForms((c) => {
                   const o = c.omaha
@@ -863,43 +939,139 @@ function App() {
                 </div>
               </div>
 
-              <div className="holdem-result-custom holdem-result-custom-tight">
-                <p className="holdem-custom-heading">自定义保额</p>
-                <div className="holdem-custom-buy-row">
-                  <span className="holdem-custom-buy-label">金额：</span>
-                  <input
-                    id="omaha-custom-buy-input"
-                    className="holdem-custom-input holdem-custom-input-inline"
-                    inputMode="decimal"
-                    min="0"
-                    type="number"
-                    value={omahaResultCustomBuy}
-                    onChange={(event) => setOmahaResultCustomBuy(event.target.value)}
-                  />
+              {omahaSplitUi ? (
+                <div className="omaha-split-box">
+                  <p className="holdem-custom-heading">保险类型选择</p>
+                  <div className="omaha-split-chips" role="group" aria-label="反超类型">
+                    {OMAHA_SPLIT_PURCHASE_OPTIONS.map((opt) => {
+                      const on = omahaSplitSelected.includes(opt.id)
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          className={on ? 'omaha-split-chip is-on' : 'omaha-split-chip'}
+                          aria-pressed={on}
+                          onClick={() => toggleOmahaSplitType(opt.id)}
+                        >
+                          {opt.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  {omahaSplitUi.pick ? (
+                    <p className="omaha-split-hint">请选择要购买的反超类型。</p>
+                  ) : null}
+
+                  {!omahaSplitUi.pick && omahaSplitUi.badBoard ? (
+                    <p className="holdem-custom-invalid">当前公共牌与街不匹配。</p>
+                  ) : null}
+
+                  {!omahaSplitUi.pick && !omahaSplitUi.badBoard ? (
+                    <>
+                      <div className="holdem-custom-buy-row omaha-split-buy-row">
+                        <span className="holdem-custom-buy-label">购买金额：</span>
+                        <input
+                          className="holdem-custom-input holdem-custom-input-inline"
+                          inputMode="decimal"
+                          min="0"
+                          type="number"
+                          value={omahaSplitPurchase}
+                          onChange={(event) => setOmahaSplitPurchase(event.target.value)}
+                          aria-label="拆分购买金额"
+                        />
+                      </div>
+
+                      <p className="omaha-split-line">
+                        所选OUTS（{omahaSplitUi.metrics.nextStreetLabel}去重）：
+                        <strong>{omahaSplitUi.metrics.selectedOuts}</strong>
+                      </p>
+                      {!omahaSplitUi.zeroUnion ? (
+                        <p className="omaha-split-line omaha-split-subtle">明细：{omahaSplitUi.detailLine}</p>
+                      ) : null}
+
+                      <p className="omaha-split-line">
+                        所选赔率：<strong>{formatOdds(omahaSplitUi.metrics.selectedOdds)}</strong>
+                      </p>
+
+                      {omahaSplitUi.includesChop ? (
+                        <p className="omaha-split-line">
+                          平分赔付上限：
+                          {omahaSplitUi.halfPot !== null ? omahaSplitUi.halfPot.toFixed(2) : '待确认'}
+                        </p>
+                      ) : null}
+
+                      {omahaSplitUi.buyEmpty && !omahaSplitUi.zeroUnion ? (
+                        <p className="omaha-split-hint">输入购买金额后显示预计赔付。</p>
+                      ) : null}
+                      {omahaSplitUi.status === 'invalidBuy' ? (
+                        <p className="holdem-custom-invalid">请输入大于 0 的金额。</p>
+                      ) : null}
+                      {!omahaSplitUi.buyEmpty &&
+                      omahaSplitUi.buyValid &&
+                      !omahaSplitUi.zeroUnion &&
+                      omahaSplitUi.status === 'oddsPending' ? (
+                        <p className="omaha-split-line">
+                          预计赔付：<strong>待确认</strong>
+                        </p>
+                      ) : null}
+                      {!omahaSplitUi.buyEmpty && omahaSplitUi.buyValid && omahaSplitUi.payout !== null ? (
+                        <p
+                          className={
+                            omahaSplitUi.status === 'overPot' || omahaSplitUi.status === 'overChopHalf'
+                              ? 'omaha-split-line omaha-split-warn'
+                              : 'omaha-split-line'
+                          }
+                        >
+                          预计赔付：<strong>{omahaSplitUi.payout.toFixed(2)}</strong>
+                        </p>
+                      ) : null}
+                      {omahaSplitUi.warnLine ? (
+                        <p className="omaha-split-line omaha-split-warn">{omahaSplitUi.warnLine}</p>
+                      ) : null}
+
+                      <label className="omaha-split-bringback">
+                        <input
+                          type="checkbox"
+                          checked={omahaSplitBringback}
+                          onChange={(event) => setOmahaSplitBringback(event.target.checked)}
+                        />
+                        <span>平分带回</span>
+                      </label>
+
+                      {omahaSplitBringback ? (
+                        <p className="omaha-split-line">
+                          平分带回：
+                          <strong>
+                            {!omahaSplitUi.pick && !omahaSplitUi.badBoard && omahaSplitUi.bringbackAmt !== null
+                              ? omahaSplitUi.bringbackAmt.toFixed(2)
+                              : '待确认'}
+                          </strong>
+                        </p>
+                      ) : null}
+
+                      {!omahaSplitUi.pick && !omahaSplitUi.badBoard && (omahaSplitUi.zeroUnion || !omahaSplitUi.buyEmpty) ? (
+                        <p className="omaha-split-line omaha-split-status">
+                          状态：
+                          {omahaSplitUi.status === 'invalidBuy'
+                            ? '金额无效'
+                            : omahaSplitUi.status === 'noTieOuts'
+                              ? '当前没有可买的平分 OUTS。'
+                              : omahaSplitUi.status === 'noSelectedOuts'
+                                ? '当前所选类型没有可买 OUTS。'
+                                : omahaSplitUi.status === 'oddsPending'
+                                  ? '赔率待确认'
+                                  : omahaSplitUi.status === 'overPot'
+                                    ? '超过总底池'
+                                    : omahaSplitUi.status === 'overChopHalf'
+                                      ? '平分赔付超过底池一半'
+                                      : '可买'}
+                        </p>
+                      ) : null}
+                    </>
+                  ) : null}
                 </div>
-                {omahaCustomPreview?.kind === 'empty' ? (
-                  <p className="holdem-custom-placeholder">可输入任意金额测算。</p>
-                ) : null}
-                {omahaCustomPreview?.kind === 'invalid' ? (
-                  <p className="holdem-custom-invalid">请输入大于 0 的有效金额。</p>
-                ) : null}
-                {omahaCustomPreview?.kind === 'pending' ? (
-                  <p className="holdem-custom-line">
-                    预计赔付：<strong>待确认</strong> · 状态：赔率待确认，暂不能测算。
-                  </p>
-                ) : null}
-                {omahaCustomPreview?.kind === 'ok' ? (
-                  <p className="holdem-custom-line">
-                    预计赔付：<strong>{omahaCustomPreview.payout.toFixed(2)}</strong> · 状态：可买
-                  </p>
-                ) : null}
-                {omahaCustomPreview?.kind === 'over' ? (
-                  <p className="holdem-custom-line holdem-custom-line-warn">
-                    预计赔付：<strong>{omahaCustomPreview.payout.toFixed(2)}</strong> · 状态：超过底池，最多可买{' '}
-                    {omahaCustomPreview.maxBuyDisplay.replace(/\.00$/, '')}
-                  </p>
-                ) : null}
-              </div>
+              ) : null}
 
               <p className="holdem-result-footnote">{result.algorithmStatus}</p>
             </>

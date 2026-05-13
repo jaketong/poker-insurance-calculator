@@ -51,6 +51,200 @@ export type InsuranceResult = {
   omahaCompactLayout?: boolean
 }
 
+/** 奥马哈「按反超类型拆分购买」牌型分类（落后方最终成牌 / 平分） */
+export type OmahaSplitCategoryId =
+  | 'straightFlush'
+  | 'fourKind'
+  | 'fullHouse'
+  | 'flush'
+  | 'straight'
+  | 'trips'
+  | 'twoPair'
+  | 'onePair'
+  | 'highCard'
+  | 'tie'
+
+export const OMAHA_SPLIT_PURCHASE_OPTIONS: { id: OmahaSplitCategoryId; label: string }[] = [
+  { id: 'straightFlush', label: '同花顺' },
+  { id: 'fourKind', label: '四条' },
+  { id: 'fullHouse', label: '葫芦' },
+  { id: 'flush', label: '同花' },
+  { id: 'straight', label: '顺子' },
+  { id: 'trips', label: '三条' },
+  { id: 'twoPair', label: '两对' },
+  { id: 'onePair', label: '一对' },
+  { id: 'highCard', label: '高张' },
+  { id: 'tie', label: '平分' },
+]
+
+/** 将 5 张牌 evaluate5Cards 主分类映射为拆分购买类型（与奥马哈最终 5 张牌力一致） */
+function omahaSplitCategoryFromHandRank(h: HandRank): OmahaSplitCategoryId {
+  const c = h[0] ?? 0
+  if (c === 8) {
+    return 'straightFlush'
+  }
+  if (c === 7) {
+    return 'fourKind'
+  }
+  if (c === 6) {
+    return 'fullHouse'
+  }
+  if (c === 5) {
+    return 'flush'
+  }
+  if (c === 4) {
+    return 'straight'
+  }
+  if (c === 3) {
+    return 'trips'
+  }
+  if (c === 2) {
+    return 'twoPair'
+  }
+  if (c === 1) {
+    return 'onePair'
+  }
+  return 'highCard'
+}
+
+function underdogHoleCards(underdog: Player, playerA: Card[], playerB: Card[]): Card[] {
+  return underdog === 'A' ? playerA : playerB
+}
+
+/**
+ * 枚举下一张公共牌 code → 该牌下可能出现的反超/平分类型（对同一 code 用 Set 去重类型）。
+ * 翻牌：下一張转牌；转牌：下一張河牌。
+ */
+function buildOmahaNextCardCategoryMap(
+  underdog: Player,
+  playerA: Card[],
+  playerB: Card[],
+  board: Card[],
+  street: 'flop' | 'turn',
+): Map<string, Set<OmahaSplitCategoryId>> {
+  const nextToCats = new Map<string, Set<OmahaSplitCategoryId>>()
+  const udHole = underdogHoleCards(underdog, playerA, playerB)
+
+  function addCat(nextCode: string, cat: OmahaSplitCategoryId) {
+    let s = nextToCats.get(nextCode)
+    if (!s) {
+      s = new Set()
+      nextToCats.set(nextCode, s)
+    }
+    s.add(cat)
+  }
+
+  const baseUsed = [...playerA, ...playerB, ...board]
+  const deck = remainingDeckOmaha(baseUsed)
+
+  if (street === 'flop' && board.length === 3) {
+    forEachCombination(deck, 2, (combo) => {
+      const turn = combo[0]!
+      const river = combo[1]!
+      const board5 = [...board, turn, river]
+      const cmp = compareOmahaShowdown(playerA, playerB, board5)
+      if (cmp === 0) {
+        addCat(turn.code, 'tie')
+      } else {
+        const winner: Player = cmp > 0 ? 'A' : 'B'
+        if (winner === underdog) {
+          const hr = evaluateOmahaHand(udHole, board5)
+          addCat(turn.code, omahaSplitCategoryFromHandRank(hr))
+        }
+      }
+    })
+    return nextToCats
+  }
+
+  if (street === 'turn' && board.length === 4) {
+    for (const river of deck) {
+      const board5 = [...board, river]
+      const cmp = compareOmahaShowdown(playerA, playerB, board5)
+      if (cmp === 0) {
+        addCat(river.code, 'tie')
+      } else {
+        const winner: Player = cmp > 0 ? 'A' : 'B'
+        if (winner === underdog) {
+          const hr = evaluateOmahaHand(udHole, board5)
+          addCat(river.code, omahaSplitCategoryFromHandRank(hr))
+        }
+      }
+    }
+    return nextToCats
+  }
+
+  return nextToCats
+}
+
+export type OmahaSplitSelectionMetrics = {
+  /** 下一张牌维度说明 */
+  nextStreetLabel: '转牌' | '河牌'
+  /** 每种类型对应的去重下一张牌张数（类型间可重叠） */
+  outsByCategory: Partial<Record<OmahaSplitCategoryId, number>>
+  /** 勾选类型的下一张牌 code 并集大小 */
+  selectedOuts: number
+  /** 勾选并集对应默认赔率 */
+  selectedOdds: OddsValue
+  /** 并集 codes（排序，便于调试/展示） */
+  unionCodes: string[]
+}
+
+/**
+ * 按勾选类型计算：各类型 outs（按 code）、去重总 outs、所选赔率（沿用 omaha 赔率表，不按类型改表）。
+ */
+export function computeOmahaSplitSelectionMetrics(
+  underdog: Player,
+  playerA: Card[],
+  playerB: Card[],
+  board: Card[],
+  street: 'flop' | 'turn',
+  selected: OmahaSplitCategoryId[],
+): OmahaSplitSelectionMetrics | null {
+  const uniqSelected = [...new Set(selected)]
+  if (uniqSelected.length === 0) {
+    return null
+  }
+  if (street === 'flop' && board.length !== 3) {
+    return null
+  }
+  if (street === 'turn' && board.length !== 4) {
+    return null
+  }
+
+  const nextToCats = buildOmahaNextCardCategoryMap(underdog, playerA, playerB, board, street)
+  const outsByCategory: Partial<Record<OmahaSplitCategoryId, number>> = {}
+  for (const id of uniqSelected) {
+    let n = 0
+    for (const [, cats] of nextToCats) {
+      if (cats.has(id)) {
+        n += 1
+      }
+    }
+    outsByCategory[id] = n
+  }
+
+  const union = new Set<string>()
+  for (const [code, cats] of nextToCats) {
+    for (const sel of uniqSelected) {
+      if (cats.has(sel)) {
+        union.add(code)
+        break
+      }
+    }
+  }
+
+  const selectedOuts = union.size
+  const selectedOdds = getDefaultOdds('omaha', selectedOuts)
+
+  return {
+    nextStreetLabel: street === 'flop' ? '转牌' : '河牌',
+    outsByCategory,
+    selectedOuts,
+    selectedOdds,
+    unionCodes: [...union].sort(),
+  }
+}
+
 export const gameLabels: Record<GameType, string> = {
   holdem: '德州扑克',
   omaha: '奥马哈',
