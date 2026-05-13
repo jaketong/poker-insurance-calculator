@@ -5,16 +5,18 @@ import {
   collectHoldemResultLines,
   computeHoldemSplitSelectionMetrics,
   computeOmahaSplitSelectionMetrics,
+  computeShortDeckSplitSelectionMetrics,
   formatAmount,
   formatOdds,
   formatPercent,
   formatCardCodeForDisplay,
   gameLabels,
   HOLDEM_GAME_NAME,
-  HOLDEM_GRID_RANKS,
   isHoldemPreflopPairVsPairScenario,
   OMAHA_SPLIT_PURCHASE_OPTIONS,
   parseCards,
+  SHORT_DECK_GRID_RANKS,
+  SHORT_DECK_SPLIT_PURCHASE_OPTIONS,
   type GameType,
   type HoldemPreflopPairInsurance,
   type InsuranceInput,
@@ -25,6 +27,8 @@ import {
 } from './lib/insuranceCalculator'
 
 const HOLDEM_SUITS = ['h', 's', 'd', 'c'] as const
+
+const HOLDEM_GRID_RANKS = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'] as const
 
 function buildHoldemClipboardTextUi(
   result: InsuranceResult,
@@ -60,6 +64,9 @@ type FormState = {
   omahaLeaderCodes?: string[]
   omahaUnderdogCodes?: string[]
   omahaBoardCodes?: string[]
+  shortDeckLeaderCodes?: string[]
+  shortDeckUnderdogCodes?: string[]
+  shortDeckBoardCodes?: string[]
 }
 
 const gameConfigs: GameConfig[] = [
@@ -86,20 +93,17 @@ const gameConfigs: GameConfig[] = [
   {
     type: 'shortDeck',
     label: '短牌',
-    rules: ['36 张牌，只使用 6 到 A', 'A6789 默认算顺子', '同花大于葫芦', '顺子大于三条'],
+    rules: [
+      '36 张牌：仅 6–A，无 2–5',
+      'A6789 为顺子；同花＞葫芦；顺子＞三条',
+      '仅翻牌/转牌启动保险；领先方手动指定',
+    ],
     placeholders: {
       playerA: 'Ah Kh',
       playerB: 'Qs Js',
       board: 'Ts 9s 6d',
     },
   },
-]
-
-const streetOptionsAll: { value: Street; label: string }[] = [
-  { value: 'preflop', label: '翻前' },
-  { value: 'flop', label: '翻牌' },
-  { value: 'turn', label: '转牌' },
-  { value: 'river', label: '河牌' },
 ]
 
 const streetOptionsHoldem: { value: Street; label: string }[] = [
@@ -109,6 +113,11 @@ const streetOptionsHoldem: { value: Street; label: string }[] = [
 ]
 
 const streetOptionsOmaha: { value: Street; label: string }[] = [
+  { value: 'flop', label: '翻牌' },
+  { value: 'turn', label: '转牌' },
+]
+
+const streetOptionsShortDeck: { value: Street; label: string }[] = [
   { value: 'flop', label: '翻牌' },
   { value: 'turn', label: '转牌' },
 ]
@@ -140,13 +149,16 @@ const initialForms: Record<GameType, FormState> = {
     omahaBoardCodes: ['Kh', 'Qs', '2d'],
   },
   shortDeck: {
-    playerAInput: 'Ah Kh',
-    playerBInput: 'Qs Js',
-    boardInput: 'Ts 9s 6d',
+    playerAInput: 'As Ks',
+    playerBInput: '8h 7d',
+    boardInput: '6c 9s Qd',
     leader: 'A',
     street: 'flop',
     potAmount: '10000',
     allInAmount: '3000',
+    shortDeckLeaderCodes: ['As', 'Ks'],
+    shortDeckUnderdogCodes: ['8h', '7d'],
+    shortDeckBoardCodes: ['6c', '9s', 'Qd'],
   },
 }
 
@@ -175,6 +187,32 @@ function omahaMaxBoardCards(street: Street): number {
 
 function omahaEffectiveStreet(street: Street): Street {
   return street === 'flop' || street === 'turn' ? street : 'flop'
+}
+
+function shortDeckMaxBoardCards(street: Street): number {
+  if (street === 'flop') {
+    return 3
+  }
+  if (street === 'turn') {
+    return 4
+  }
+  return 0
+}
+
+function shortDeckEffectiveStreet(street: Street): Street {
+  return street === 'flop' || street === 'turn' ? street : 'flop'
+}
+
+function syncShortDeckTextFromCodes(f: FormState): FormState {
+  const leader = f.shortDeckLeaderCodes ?? []
+  const under = f.shortDeckUnderdogCodes ?? []
+  const board = f.shortDeckBoardCodes ?? []
+  return {
+    ...f,
+    playerAInput: leader.join(' '),
+    playerBInput: under.join(' '),
+    boardInput: board.join(' '),
+  }
 }
 
 function syncHoldemTextFromCodes(f: FormState): FormState {
@@ -218,8 +256,13 @@ function App() {
   const [holdemSplitPurchase, setHoldemSplitPurchase] = useState('')
   const [holdemSplitBringback, setHoldemSplitBringback] = useState(false)
   const [omahaPickerOpen, setOmahaPickerOpen] = useState<'leader' | 'underdog' | 'board' | null>(null)
+  const [shortDeckPickerOpen, setShortDeckPickerOpen] = useState<'leader' | 'underdog' | 'board' | null>(null)
+  const [shortDeckSplitSelected, setShortDeckSplitSelected] = useState<OmahaSplitCategoryId[]>([])
+  const [shortDeckSplitPurchase, setShortDeckSplitPurchase] = useState('')
+  const [shortDeckSplitBringback, setShortDeckSplitBringback] = useState(false)
   const holdemLenRef = useRef<{ l: number; u: number; b: number } | null>(null)
   const omahaLenRef = useRef<{ l: number; u: number; b: number } | null>(null)
+  const shortDeckLenRef = useRef<{ l: number; u: number; b: number } | null>(null)
 
   useEffect(() => {
     holdemLenRef.current = null
@@ -228,6 +271,10 @@ function App() {
   useEffect(() => {
     omahaLenRef.current = null
   }, [omahaPickerOpen])
+
+  useEffect(() => {
+    shortDeckLenRef.current = null
+  }, [shortDeckPickerOpen])
 
   useEffect(() => {
     if (activeGame !== 'holdem' || !holdemPickerOpen) {
@@ -289,10 +336,39 @@ function App() {
     }
   }, [activeGame, forms.omaha, omahaPickerOpen])
 
-  const activeConfig = useMemo(
-    () => gameConfigs.find((game) => game.type === activeGame) ?? gameConfigs[0],
-    [activeGame],
-  )
+  useEffect(() => {
+    if (activeGame !== 'shortDeck' || !shortDeckPickerOpen) {
+      return
+    }
+    const s = forms.shortDeck
+    const street = shortDeckEffectiveStreet(s.street)
+    const lens = {
+      l: (s.shortDeckLeaderCodes ?? []).length,
+      u: (s.shortDeckUnderdogCodes ?? []).length,
+      b: (s.shortDeckBoardCodes ?? []).length,
+    }
+    const cap =
+      shortDeckPickerOpen === 'leader' || shortDeckPickerOpen === 'underdog'
+        ? 2
+        : shortDeckMaxBoardCards(street)
+    if (cap <= 0) {
+      shortDeckLenRef.current = lens
+      return
+    }
+    const cur =
+      shortDeckPickerOpen === 'leader' ? lens.l : shortDeckPickerOpen === 'underdog' ? lens.u : lens.b
+    const prev = shortDeckLenRef.current
+    shortDeckLenRef.current = lens
+    if (!prev) {
+      return
+    }
+    const prevLen =
+      shortDeckPickerOpen === 'leader' ? prev.l : shortDeckPickerOpen === 'underdog' ? prev.u : prev.b
+    if (cur >= cap && prevLen < cap) {
+      setShortDeckPickerOpen(null)
+    }
+  }, [activeGame, forms.shortDeck, shortDeckPickerOpen])
+
   const activeForm = forms[activeGame]
 
   const showHoldemPairInsurance = useMemo(() => {
@@ -550,12 +626,116 @@ function App() {
     holdemSplitBringback,
   ])
 
+  const shortDeckSplitUi = useMemo(() => {
+    if (!result || result.gameType !== 'shortDeck' || !result.shortDeckCompactLayout) {
+      return null
+    }
+    const s = forms.shortDeck
+    const street: 'flop' | 'turn' = s.street === 'turn' ? 'turn' : 'flop'
+    const board = parseCards(s.boardInput)
+    const pa = parseCards(s.playerAInput)
+    const pb = parseCards(s.playerBInput)
+    const pot = Number(s.potAmount)
+    const uniq = [...new Set(shortDeckSplitSelected)]
+    if (uniq.length === 0) {
+      return { pick: true as const, pot, mixedChopNote: false as const }
+    }
+    const metrics = computeShortDeckSplitSelectionMetrics(result.underdog, pa, pb, board, street, uniq)
+    if (!metrics) {
+      return { pick: false as const, badBoard: true as const, uniq, pot, mixedChopNote: false as const }
+    }
+    const raw = shortDeckSplitPurchase.trim()
+    const buyAmt = raw === '' ? null : Number(raw)
+    const buyValid = buyAmt !== null && Number.isFinite(buyAmt) && buyAmt > 0
+    const buyEmpty = raw === ''
+    const odds = metrics.selectedOdds
+    const payout = buyValid && odds && odds > 0 ? buyAmt! * odds : null
+    const potOk = Number.isFinite(pot) && pot > 0
+    const halfPot = potOk ? pot / 2 : null
+    const includesChop = uniq.includes('tie')
+    const nonTiePick = uniq.filter((id) => id !== 'tie')
+    const tieOuts = metrics.tieOutsCount
+    const winPickUnion = metrics.selectedWinTypesUnionCount
+    const zeroUnion = metrics.selectedOuts === 0
+    const mixedChopNote = includesChop && nonTiePick.length > 0
+    let status:
+      | 'ok'
+      | 'overPot'
+      | 'overChopHalf'
+      | 'oddsPending'
+      | 'invalidBuy'
+      | 'noTieOuts'
+      | 'noSelectedOuts' = 'ok'
+    let warnLine: string | null = null
+    if (!buyEmpty && !buyValid) {
+      status = 'invalidBuy'
+    } else if (includesChop && tieOuts === 0 && nonTiePick.length === 0) {
+      status = 'noTieOuts'
+    } else if (
+      nonTiePick.length > 0 &&
+      winPickUnion === 0 &&
+      !(includesChop && tieOuts > 0)
+    ) {
+      status = 'noSelectedOuts'
+    } else if (buyValid && (!odds || odds <= 0)) {
+      status = 'oddsPending'
+    } else if (buyValid && payout !== null && potOk && odds && odds > 0) {
+      if (includesChop && halfPot !== null && payout > halfPot) {
+        status = 'overChopHalf'
+        warnLine = '平分赔付不能超过底池一半。'
+      } else if (!includesChop && payout > pot) {
+        status = 'overPot'
+        const maxBuy = pot / odds
+        warnLine = `预计赔付超过总底池，最多可买：${maxBuy.toFixed(2)}。`
+      }
+    }
+    const bringbackAmt =
+      shortDeckSplitBringback && buyValid && odds && odds > 0 ? buyAmt! / odds : null
+    const detailLine = uniq
+      .map((id) => {
+        const lab = SHORT_DECK_SPLIT_PURCHASE_OPTIONS.find((x) => x.id === id)?.label ?? id
+        const n = metrics.outsByCategory[id] ?? 0
+        return `${lab}${n}`
+      })
+      .join('·')
+    return {
+      pick: false as const,
+      badBoard: false as const,
+      uniq,
+      pot,
+      metrics,
+      buyEmpty,
+      buyValid,
+      buyAmt,
+      payout,
+      odds,
+      status,
+      warnLine,
+      includesChop,
+      halfPot,
+      bringbackAmt,
+      detailLine,
+      zeroUnion,
+      mixedChopNote,
+    }
+  }, [
+    result,
+    forms.shortDeck,
+    shortDeckSplitSelected,
+    shortDeckSplitPurchase,
+    shortDeckSplitBringback,
+  ])
+
   function toggleHoldemSplitType(id: OmahaSplitCategoryId) {
     setHoldemSplitSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
 
   function toggleOmahaSplitType(id: OmahaSplitCategoryId) {
     setOmahaSplitSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
+
+  function toggleShortDeckSplitType(id: OmahaSplitCategoryId) {
+    setShortDeckSplitSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
 
   function updateForm(field: keyof FormState, value: string) {
@@ -713,6 +893,78 @@ function App() {
     })
   }
 
+  const updateShortDeckStreet = useCallback((nextStreet: Street) => {
+    setPickerHint('')
+    setShortDeckPickerOpen(null)
+    setForms((current) => {
+      const s = current.shortDeck
+      const maxB = shortDeckMaxBoardCards(nextStreet)
+      let board = [...(s.shortDeckBoardCodes ?? [])]
+      if (board.length > maxB) {
+        board = board.slice(0, maxB)
+      }
+      const nextS = syncShortDeckTextFromCodes({
+        ...s,
+        street: nextStreet,
+        shortDeckBoardCodes: board,
+      })
+      return { ...current, shortDeck: nextS }
+    })
+  }, [])
+
+  function toggleShortDeckCard(zone: 'leader' | 'underdog' | 'board', code: string) {
+    setPickerHint('')
+    setForms((current) => {
+      const s = current.shortDeck
+      const leader = [...(s.shortDeckLeaderCodes ?? [])]
+      const under = [...(s.shortDeckUnderdogCodes ?? [])]
+      const board = [...(s.shortDeckBoardCodes ?? [])]
+      const maxLeader = 2
+      const maxUnder = 2
+      const maxBoard = shortDeckMaxBoardCards(shortDeckEffectiveStreet(s.street))
+
+      const usedElsewhere = new Set<string>()
+      if (zone !== 'leader') {
+        leader.forEach((c) => usedElsewhere.add(c))
+      }
+      if (zone !== 'underdog') {
+        under.forEach((c) => usedElsewhere.add(c))
+      }
+      if (zone !== 'board') {
+        board.forEach((c) => usedElsewhere.add(c))
+      }
+
+      const pickFrom = () => (zone === 'leader' ? leader : zone === 'underdog' ? under : board)
+
+      let target = pickFrom()
+      if (target.includes(code)) {
+        target = target.filter((c) => c !== code)
+      } else {
+        if (usedElsewhere.has(code)) {
+          queueMicrotask(() => setPickerHint('该牌已被其他区域选中'))
+          return current
+        }
+        const cap = zone === 'leader' ? maxLeader : zone === 'underdog' ? maxUnder : maxBoard
+        if (target.length >= cap) {
+          queueMicrotask(() =>
+            setPickerHint(zone === 'board' ? `公共牌当前街最多 ${cap} 张` : '该区域已选满'),
+          )
+          return current
+        }
+        target = [...target, code]
+      }
+
+      const nextS = syncShortDeckTextFromCodes(
+        zone === 'leader'
+          ? { ...s, shortDeckLeaderCodes: target }
+          : zone === 'underdog'
+            ? { ...s, shortDeckUnderdogCodes: target }
+            : { ...s, shortDeckBoardCodes: target },
+      )
+      return { ...current, shortDeck: nextS }
+    })
+  }
+
   function handleCalculate() {
     const raw = forms[activeGame]
     let form: FormState =
@@ -730,10 +982,19 @@ function App() {
               omahaUnderdogCodes: raw.omahaUnderdogCodes ?? [],
               omahaBoardCodes: raw.omahaBoardCodes ?? [],
             })
-          : raw
+          : syncShortDeckTextFromCodes({
+              ...raw,
+              shortDeckLeaderCodes: raw.shortDeckLeaderCodes ?? [],
+              shortDeckUnderdogCodes: raw.shortDeckUnderdogCodes ?? [],
+              shortDeckBoardCodes: raw.shortDeckBoardCodes ?? [],
+            })
 
     const safeStreet: Street =
-      activeGame === 'holdem' && form.street === 'river' ? 'turn' : form.street
+      activeGame === 'holdem' && form.street === 'river'
+        ? 'turn'
+        : activeGame === 'shortDeck' && (form.street === 'river' || form.street === 'preflop')
+          ? 'flop'
+          : form.street
 
     if (activeGame === 'holdem' && safeStreet === 'preflop') {
       form = syncHoldemTextFromCodes({
@@ -786,6 +1047,7 @@ function App() {
       setPickerHint('')
       setHoldemPickerOpen(null)
       setOmahaPickerOpen(null)
+      setShortDeckPickerOpen(null)
       if (activeGame === 'holdem') {
         setHoldemResultCustomBuy('')
         setHoldemSplitSelected([])
@@ -796,6 +1058,11 @@ function App() {
         setOmahaSplitSelected([])
         setOmahaSplitPurchase('')
         setOmahaSplitBringback(false)
+      }
+      if (activeGame === 'shortDeck') {
+        setShortDeckSplitSelected([])
+        setShortDeckSplitPurchase('')
+        setShortDeckSplitBringback(false)
       }
     }
 
@@ -846,6 +1113,10 @@ function App() {
               setOmahaSplitSelected([])
               setOmahaSplitPurchase('')
               setOmahaSplitBringback(false)
+              setShortDeckPickerOpen(null)
+              setShortDeckSplitSelected([])
+              setShortDeckSplitPurchase('')
+              setShortDeckSplitBringback(false)
               if (game.type === 'omaha') {
                 setForms((c) => {
                   const o = c.omaha
@@ -861,6 +1132,21 @@ function App() {
                   }
                 })
               }
+              if (game.type === 'shortDeck') {
+                setForms((c) => {
+                  const s = c.shortDeck
+                  const street: Street = s.street === 'flop' || s.street === 'turn' ? s.street : 'flop'
+                  const maxB = shortDeckMaxBoardCards(street)
+                  let board = [...(s.shortDeckBoardCodes ?? [])]
+                  if (board.length > maxB) {
+                    board = board.slice(0, maxB)
+                  }
+                  return {
+                    ...c,
+                    shortDeck: syncShortDeckTextFromCodes({ ...s, street, shortDeckBoardCodes: board }),
+                  }
+                })
+              }
             }}
           >
             {game.type === 'holdem' ? (
@@ -872,26 +1158,8 @@ function App() {
         ))}
       </nav>
 
-      {activeGame === 'shortDeck' ? (
-        <section className="panel">
-          <div className="section-title">
-            <span>{activeConfig.label}</span>
-            <strong>当前游戏</strong>
-          </div>
-          <ul className="rule-list">
-            {activeConfig.rules.map((rule) => (
-              <li key={rule}>{rule}</li>
-            ))}
-          </ul>
-          <p className="format-tip">
-            输入格式：A/K/Q/J/T/9/8/7/6/5/4/3/2 表示点数，h/s/d/c 表示花色，例如 Ah = 红桃 A，Ts = 黑桃 T。
-          </p>
-          <p className="format-tip">顶一张：当前街不买，先看下一张后重新计算。顶三张：翻前 All-in 时先等三张公共牌出来后重新计算。</p>
-        </section>
-      ) : null}
-
       <section
-        className={`panel form-panel${activeGame === 'holdem' || activeGame === 'omaha' ? ' form-panel-holdem' : ''}`}
+        className={`panel form-panel${activeGame === 'holdem' || activeGame === 'omaha' || activeGame === 'shortDeck' ? ' form-panel-holdem' : ''}`}
       >
         {activeGame === 'holdem' ? (
           <HoldemForm
@@ -928,88 +1196,20 @@ function App() {
             onLeaderChange={(player) => updateForm('leader', player)}
           />
         ) : (
-          <>
-            <label>
-              玩家 A 手牌
-              <input
-                value={activeForm.playerAInput}
-                placeholder={activeConfig.placeholders.playerA}
-                onChange={(event) => updateForm('playerAInput', event.target.value)}
-              />
-            </label>
-
-            <label>
-              玩家 B 手牌
-              <input
-                value={activeForm.playerBInput}
-                placeholder={activeConfig.placeholders.playerB}
-                onChange={(event) => updateForm('playerBInput', event.target.value)}
-              />
-            </label>
-
-            <label>
-              公共牌
-              <input
-                value={activeForm.boardInput}
-                placeholder={activeConfig.placeholders.board}
-                onChange={(event) => updateForm('boardInput', event.target.value)}
-              />
-            </label>
-
-            <div className="field-group">
-              <span>当前领先方</span>
-              <div className="segmented">
-                {(['A', 'B'] as Player[]).map((player) => (
-                  <button
-                    className={activeForm.leader === player ? 'segment is-active' : 'segment'}
-                    key={player}
-                    type="button"
-                    onClick={() => updateForm('leader', player)}
-                  >
-                    玩家 {player}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <label>
-              当前街
-              <select value={activeForm.street} onChange={(event) => updateForm('street', event.target.value)}>
-                {streetOptionsAll.map((street) => (
-                  <option key={street.value} value={street.value}>
-                    {street.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </>
+          <ShortDeckForm
+            form={activeForm}
+            pickerHint={pickerHint}
+            openZone={shortDeckPickerOpen}
+            onTogglePickerZone={(zone) => {
+              setShortDeckPickerOpen((z) => (z === zone ? null : zone))
+            }}
+            onToggleCard={toggleShortDeckCard}
+            onStreetChange={updateShortDeckStreet}
+            onPotChange={(value) => updateForm('potAmount', value)}
+            onAllInChange={(value) => updateForm('allInAmount', value)}
+            onLeaderChange={(player) => updateForm('leader', player)}
+          />
         )}
-
-        {activeGame === 'shortDeck' ? (
-          <>
-            <label>
-              总底池
-              <input
-                inputMode="decimal"
-                min="0"
-                type="number"
-                value={activeForm.potAmount}
-                onChange={(event) => updateForm('potAmount', event.target.value)}
-              />
-            </label>
-
-            <label>
-              领先方本次 All-in 投入
-              <input
-                inputMode="decimal"
-                min="0"
-                type="number"
-                value={activeForm.allInAmount}
-                onChange={(event) => updateForm('allInAmount', event.target.value)}
-              />
-            </label>
-          </>
-        ) : null}
 
         {errors.length > 0 && (
           <div className="error-box">
@@ -1029,6 +1229,10 @@ function App() {
           {result.gameType === 'omaha' && result.omahaCompactLayout ? (
             <div className="result-card-header result-card-header-holdem">
               <h2 className="holdem-game-title">{gameLabels.omaha}保险结果</h2>
+            </div>
+          ) : result.gameType === 'shortDeck' && result.shortDeckCompactLayout ? (
+            <div className="result-card-header result-card-header-holdem">
+              <h2 className="holdem-game-title">{gameLabels.shortDeck}保险结果</h2>
             </div>
           ) : result.gameType === 'holdem' && result.leaderHandDisplay !== undefined ? (
             <div className="result-card-header result-card-header-holdem">
@@ -1223,6 +1427,200 @@ function App() {
                                   : omahaSplitUi.status === 'overPot'
                                     ? '超过总底池'
                                     : omahaSplitUi.status === 'overChopHalf'
+                                      ? '平分赔付超过底池一半'
+                                      : '可买'}
+                        </p>
+                      ) : null}
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <p className="holdem-result-footnote">{result.algorithmStatus}</p>
+            </>
+          ) : result.gameType === 'shortDeck' && result.shortDeckCompactLayout ? (
+            <>
+              <div className="holdem-result-compact">
+                <div className="holdem-rcell">
+                  <span>{result.outsDisplayLabel}</span>
+                  <strong>{result.outs}</strong>
+                </div>
+                <div className="holdem-rcell">
+                  <span>命中概率</span>
+                  <strong>{formatPercent(result.hitProbability)}</strong>
+                </div>
+                <div className="holdem-rcell">
+                  <span>赔率</span>
+                  <strong>{formatOdds(result.defaultOdds)}</strong>
+                </div>
+                <div className="holdem-rcell">
+                  <span>买保本</span>
+                  <strong>{formatAmount(result.breakEvenInsurance)}</strong>
+                </div>
+                <div className="holdem-rcell holdem-rcell-span2">
+                  <span>买满池</span>
+                  <strong>{formatAmount(result.fullPotInsurance)}</strong>
+                </div>
+              </div>
+
+              <p className="holdem-out-cards-line">
+                反超牌：{result.directOutCardCodesDisplay?.trim() ? result.directOutCardCodesDisplay : '无'}
+              </p>
+              <p className="holdem-out-cards-line">
+                平分牌：{result.chopOutCardCodesDisplay?.trim() ? result.chopOutCardCodesDisplay : '无'}
+              </p>
+
+              {shortDeckSplitUi ? (
+                <div className="omaha-split-box">
+                  <p className="holdem-custom-heading">保险类型选择</p>
+                  <div className="omaha-split-chips" role="group" aria-label="短牌反超类型">
+                    {SHORT_DECK_SPLIT_PURCHASE_OPTIONS.map((opt) => {
+                      const on = shortDeckSplitSelected.includes(opt.id)
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          className={on ? 'omaha-split-chip is-on' : 'omaha-split-chip'}
+                          aria-pressed={on}
+                          onClick={() => toggleShortDeckSplitType(opt.id)}
+                        >
+                          {opt.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  {shortDeckSplitUi.pick ? (
+                    <p className="omaha-split-hint">请选择要购买的反超类型。</p>
+                  ) : null}
+
+                  {!shortDeckSplitUi.pick && shortDeckSplitUi.badBoard ? (
+                    <p className="holdem-custom-invalid">当前公共牌与街不匹配。</p>
+                  ) : null}
+
+                  {!shortDeckSplitUi.pick && !shortDeckSplitUi.badBoard ? (
+                    <>
+                      <div className="holdem-custom-buy-row omaha-split-buy-row">
+                        <span className="holdem-custom-buy-label">购买金额：</span>
+                        <input
+                          className="holdem-custom-input holdem-custom-input-inline"
+                          inputMode="decimal"
+                          min="0"
+                          type="number"
+                          value={shortDeckSplitPurchase}
+                          onChange={(event) => setShortDeckSplitPurchase(event.target.value)}
+                          aria-label="短牌拆分购买金额"
+                        />
+                      </div>
+
+                      <p className="omaha-split-line">
+                        所选OUTS（{shortDeckSplitUi.metrics.nextStreetLabel}去重）：
+                        <strong>{shortDeckSplitUi.metrics.selectedOuts}</strong>
+                      </p>
+                      <p className="omaha-split-line omaha-split-subtle">
+                        平分OUTS：{shortDeckSplitUi.metrics.tieOutsCount} · 反超所选：
+                        {shortDeckSplitUi.metrics.selectedWinTypesUnionCount}
+                      </p>
+                      {!shortDeckSplitUi.zeroUnion ? (
+                        <>
+                          <p className="omaha-split-line omaha-split-subtle">明细：{shortDeckSplitUi.detailLine}</p>
+                          {shortDeckSplitUi.uniq.map((id) => {
+                            const lab = SHORT_DECK_SPLIT_PURCHASE_OPTIONS.find((x) => x.id === id)?.label ?? id
+                            const cards = shortDeckSplitUi.metrics.categoryCardsDisplay[id]?.trim()
+                            const n = shortDeckSplitUi.metrics.outsByCategory[id] ?? 0
+                            return (
+                              <p key={id} className="omaha-split-line omaha-split-card-detail">
+                                {lab}：{cards || '无'}
+                                {n > 0 ? `（${n}）` : ''}
+                              </p>
+                            )
+                          })}
+                        </>
+                      ) : null}
+
+                      <p className="omaha-split-line">
+                        所选赔率：<strong>{formatOdds(shortDeckSplitUi.metrics.selectedOdds)}</strong>
+                      </p>
+
+                      {shortDeckSplitUi.includesChop ? (
+                        <p className="omaha-split-line">
+                          平分赔付上限：
+                          {shortDeckSplitUi.halfPot !== null ? shortDeckSplitUi.halfPot.toFixed(2) : '待确认'}
+                        </p>
+                      ) : null}
+
+                      {shortDeckSplitUi.buyEmpty && !shortDeckSplitUi.zeroUnion ? (
+                        <p className="omaha-split-hint">输入购买金额后显示预计赔付。</p>
+                      ) : null}
+                      {shortDeckSplitUi.status === 'invalidBuy' ? (
+                        <p className="holdem-custom-invalid">请输入大于 0 的金额。</p>
+                      ) : null}
+                      {!shortDeckSplitUi.buyEmpty &&
+                      shortDeckSplitUi.buyValid &&
+                      !shortDeckSplitUi.zeroUnion &&
+                      shortDeckSplitUi.status === 'oddsPending' ? (
+                        <p className="omaha-split-line">
+                          预计赔付：<strong>待确认</strong>
+                        </p>
+                      ) : null}
+                      {!shortDeckSplitUi.buyEmpty && shortDeckSplitUi.buyValid && shortDeckSplitUi.payout !== null ? (
+                        <p
+                          className={
+                            shortDeckSplitUi.status === 'overPot' || shortDeckSplitUi.status === 'overChopHalf'
+                              ? 'omaha-split-line omaha-split-warn'
+                              : 'omaha-split-line'
+                          }
+                        >
+                          预计赔付：<strong>{shortDeckSplitUi.payout.toFixed(2)}</strong>
+                        </p>
+                      ) : null}
+                      {shortDeckSplitUi.warnLine ? (
+                        <p className="omaha-split-line omaha-split-warn">{shortDeckSplitUi.warnLine}</p>
+                      ) : null}
+                      {shortDeckSplitUi.mixedChopNote ? (
+                        <p className="omaha-split-line omaha-split-subtle">
+                          包含平分购买，平分赔付最高为底池一半，现场确认赔付规则。
+                        </p>
+                      ) : null}
+
+                      <label className="omaha-split-bringback">
+                        <input
+                          type="checkbox"
+                          checked={shortDeckSplitBringback}
+                          onChange={(event) => setShortDeckSplitBringback(event.target.checked)}
+                        />
+                        <span>平分带回</span>
+                      </label>
+
+                      {shortDeckSplitBringback ? (
+                        <p className="omaha-split-line">
+                          平分带回：
+                          <strong>
+                            {!shortDeckSplitUi.pick &&
+                            !shortDeckSplitUi.badBoard &&
+                            shortDeckSplitUi.bringbackAmt !== null
+                              ? shortDeckSplitUi.bringbackAmt.toFixed(2)
+                              : '待确认'}
+                          </strong>
+                        </p>
+                      ) : null}
+
+                      {!shortDeckSplitUi.pick &&
+                      !shortDeckSplitUi.badBoard &&
+                      (shortDeckSplitUi.zeroUnion || !shortDeckSplitUi.buyEmpty) ? (
+                        <p className="omaha-split-line omaha-split-status">
+                          状态：
+                          {shortDeckSplitUi.status === 'invalidBuy'
+                            ? '金额无效'
+                            : shortDeckSplitUi.status === 'noTieOuts'
+                              ? '当前没有可买的平分 OUTS。'
+                              : shortDeckSplitUi.status === 'noSelectedOuts'
+                                ? '当前所选类型没有可买 OUTS。'
+                                : shortDeckSplitUi.status === 'oddsPending'
+                                  ? '赔率待确认'
+                                  : shortDeckSplitUi.status === 'overPot'
+                                    ? '超过总底池'
+                                    : shortDeckSplitUi.status === 'overChopHalf'
                                       ? '平分赔付超过底池一半'
                                       : '可买'}
                         </p>
@@ -1520,6 +1918,183 @@ function App() {
         </section>
       )}
     </main>
+  )
+}
+
+function ShortDeckForm({
+  form,
+  pickerHint,
+  openZone,
+  onTogglePickerZone,
+  onToggleCard,
+  onStreetChange,
+  onPotChange,
+  onAllInChange,
+  onLeaderChange,
+}: {
+  form: FormState
+  pickerHint: string
+  openZone: 'leader' | 'underdog' | 'board' | null
+  onTogglePickerZone: (zone: 'leader' | 'underdog' | 'board') => void
+  onToggleCard: (zone: 'leader' | 'underdog' | 'board', code: string) => void
+  onStreetChange: (street: Street) => void
+  onPotChange: (value: string) => void
+  onAllInChange: (value: string) => void
+  onLeaderChange: (player: Player) => void
+}) {
+  const leader = form.shortDeckLeaderCodes ?? []
+  const under = form.shortDeckUnderdogCodes ?? []
+  const board = form.shortDeckBoardCodes ?? []
+  const sdStreet = shortDeckEffectiveStreet(form.street)
+  const maxBoard = shortDeckMaxBoardCards(sdStreet)
+
+  useEffect(() => {
+    if (form.street !== 'flop' && form.street !== 'turn') {
+      onStreetChange('flop')
+    }
+  }, [form.street, onStreetChange])
+
+  return (
+    <>
+      <p className="format-tip short-deck-format-tip">
+        只可选 6–A（36 张），无 2–5。花色：h 红桃、s 黑桃、d 方块、c 梅花。
+      </p>
+      <div className="holdem-hands-row">
+        <HoldemHandMini
+          title="领先方"
+          selectedCodes={leader}
+          isOpen={openZone === 'leader'}
+          onToggleOpen={() => onTogglePickerZone('leader')}
+          onToggle={(code) => onToggleCard('leader', code)}
+        />
+        <HoldemHandMini
+          title="落后方"
+          selectedCodes={under}
+          isOpen={openZone === 'underdog'}
+          onToggleOpen={() => onTogglePickerZone('underdog')}
+          onToggle={(code) => onToggleCard('underdog', code)}
+        />
+      </div>
+      {openZone === 'leader' ? (
+        <HoldemCardPickerSheet
+          ariaLabel="领先方选牌"
+          maxCount={2}
+          selectedCodes={leader}
+          otherCodes={new Set([...under, ...board])}
+          onToggle={(code) => onToggleCard('leader', code)}
+          gridRanks={SHORT_DECK_GRID_RANKS}
+        />
+      ) : null}
+      {openZone === 'underdog' ? (
+        <HoldemCardPickerSheet
+          ariaLabel="落后方选牌"
+          maxCount={2}
+          selectedCodes={under}
+          otherCodes={new Set([...leader, ...board])}
+          onToggle={(code) => onToggleCard('underdog', code)}
+          gridRanks={SHORT_DECK_GRID_RANKS}
+        />
+      ) : null}
+
+      <div className={`holdem-board-wrap${maxBoard === 0 ? ' is-disabled' : ''}`}>
+        <div className="holdem-board-inline">
+          <span className="holdem-board-title">公共牌</span>
+          <div className="holdem-board-chips">
+            {board.length === 0 ? (
+              <span className="holdem-selected-empty">未选择</span>
+            ) : (
+              board.map((code) => (
+                <button
+                  key={code}
+                  type="button"
+                  className="holdem-chip holdem-chip-sm"
+                  onClick={() => onToggleCard('board', code)}
+                >
+                  {formatCardCodeForDisplay(code)}
+                </button>
+              ))
+            )}
+          </div>
+          {maxBoard > 0 ? (
+            <button
+              type="button"
+              className="pick-toggle pick-toggle-compact"
+              onClick={() => onTogglePickerZone('board')}
+            >
+              {openZone === 'board' ? '收起' : '改牌'}
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {openZone === 'board' && maxBoard > 0 ? (
+        <HoldemCardPickerSheet
+          ariaLabel="公共牌选牌"
+          maxCount={maxBoard}
+          selectedCodes={board}
+          otherCodes={new Set([...leader, ...under])}
+          onToggle={(code) => onToggleCard('board', code)}
+          gridRanks={SHORT_DECK_GRID_RANKS}
+        />
+      ) : null}
+
+      <div className="holdem-fields-compact">
+        <div className="field-group holdem-leader-row">
+          <span className="holdem-field-label">当前领先方</span>
+          <div className="segmented holdem-seg-inline">
+            {(['A', 'B'] as Player[]).map((player) => (
+              <button
+                key={player}
+                type="button"
+                className={form.leader === player ? 'segment is-active' : 'segment'}
+                onClick={() => onLeaderChange(player)}
+              >
+                玩家 {player}
+              </button>
+            ))}
+          </div>
+        </div>
+        <label className="holdem-street-row">
+          <span className="holdem-field-label">当前街</span>
+          <select
+            className="holdem-select-tight"
+            value={sdStreet}
+            onChange={(event) => onStreetChange(event.target.value as Street)}
+          >
+            {streetOptionsShortDeck.map((street) => (
+              <option key={street.value} value={street.value}>
+                {street.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="holdem-money-row">
+          <label className="holdem-money-pair">
+            <span className="holdem-field-label">总底池</span>
+            <input
+              className="holdem-input-tight"
+              inputMode="decimal"
+              min="0"
+              type="number"
+              value={form.potAmount}
+              onChange={(event) => onPotChange(event.target.value)}
+            />
+          </label>
+          <label className="holdem-money-pair">
+            <span className="holdem-field-label">投入</span>
+            <input
+              className="holdem-input-tight"
+              inputMode="decimal"
+              min="0"
+              type="number"
+              value={form.allInAmount}
+              onChange={(event) => onAllInChange(event.target.value)}
+            />
+          </label>
+        </div>
+      </div>
+
+      {pickerHint ? <p className="picker-hint">{pickerHint}</p> : null}
+    </>
   )
 }
 
@@ -1921,18 +2496,21 @@ function HoldemCardPickerSheet({
   maxCount,
   otherCodes,
   onToggle,
+  gridRanks,
 }: {
   ariaLabel: string
   selectedCodes: string[]
   maxCount: number
   otherCodes: Set<string>
   onToggle: (code: string) => void
+  gridRanks?: readonly string[]
 }) {
+  const ranks: readonly string[] = gridRanks ?? HOLDEM_GRID_RANKS
   return (
     <div className="holdem-picker-sheet">
       <p className="picker-legend picker-legend-inline">♥红桃 ♠黑桃 ♦方块 ♣梅花</p>
       <div className="card-grid" aria-label={ariaLabel}>
-        {HOLDEM_GRID_RANKS.map((rank) => (
+        {ranks.map((rank) => (
           <div className="card-grid-row" key={rank}>
             {HOLDEM_SUITS.map((suit) => {
               const code = `${rank}${suit}`

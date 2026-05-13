@@ -49,6 +49,8 @@ export type InsuranceResult = {
   holdemPairRuleHint?: string | null
   /** 奥马哈结果卡片使用与德州类似的紧凑布局 */
   omahaCompactLayout?: boolean
+  /** 短牌结果卡片使用与德州/奥马哈类似的紧凑布局 */
+  shortDeckCompactLayout?: boolean
   /** 下一张公共牌直接反超的牌（已排序展示）；无则 UI 显示「无」 */
   directOutCardCodesDisplay?: string
   /** 下一张公共牌可导致平分的牌（已排序展示）；无则 UI 显示「无」 */
@@ -75,6 +77,20 @@ export const OMAHA_SPLIT_PURCHASE_OPTIONS: { id: OmahaSplitCategoryId; label: st
   { id: 'fourKind', label: '四条' },
   { id: 'fullHouse', label: '葫芦' },
   { id: 'flush', label: '同花' },
+  { id: 'straight', label: '顺子' },
+  { id: 'trips', label: '三条' },
+  { id: 'twoPair', label: '两对' },
+  { id: 'onePair', label: '一对' },
+  { id: 'highCard', label: '高张' },
+  { id: 'tie', label: '平分' },
+]
+
+/** 短牌拆分购买 chip 顺序：同花顺＞四条＞同花＞葫芦＞顺子＞…（牌力顺序） */
+export const SHORT_DECK_SPLIT_PURCHASE_OPTIONS: { id: OmahaSplitCategoryId; label: string }[] = [
+  { id: 'straightFlush', label: '同花顺' },
+  { id: 'fourKind', label: '四条' },
+  { id: 'flush', label: '同花' },
+  { id: 'fullHouse', label: '葫芦' },
   { id: 'straight', label: '顺子' },
   { id: 'trips', label: '三条' },
   { id: 'twoPair', label: '两对' },
@@ -200,7 +216,7 @@ export type OmahaSplitSelectionMetrics = {
 }
 
 function finalizeSplitPurchaseMetrics(
-  gameType: 'holdem' | 'omaha',
+  gameType: 'holdem' | 'omaha' | 'shortDeck',
   nextToCats: Map<string, Set<OmahaSplitCategoryId>>,
   street: 'flop' | 'turn',
   uniqSelected: OmahaSplitCategoryId[],
@@ -387,6 +403,88 @@ export function computeHoldemSplitSelectionMetrics(
   return finalizeSplitPurchaseMetrics('holdem', nextToCats, street, uniqSelected)
 }
 
+function buildShortDeckNextCardCategoryMap(
+  underdog: Player,
+  playerA: Card[],
+  playerB: Card[],
+  board: Card[],
+  street: 'flop' | 'turn',
+): Map<string, Set<OmahaSplitCategoryId>> {
+  const nextToCats = new Map<string, Set<OmahaSplitCategoryId>>()
+  const udHole = underdogHoleCards(underdog, playerA, playerB)
+
+  function addCat(nextCode: string, cat: OmahaSplitCategoryId) {
+    let s = nextToCats.get(nextCode)
+    if (!s) {
+      s = new Set()
+      nextToCats.set(nextCode, s)
+    }
+    s.add(cat)
+  }
+
+  const baseUsed = [...playerA, ...playerB, ...board]
+  const deck = remainingDeckShortDeck(baseUsed)
+
+  if (street === 'flop' && board.length === 3) {
+    for (const turn of deck) {
+      const board4 = [...board, turn]
+      const cmp = comparePartialShowdownShortDeck(playerA, playerB, board4)
+      if (cmp === 0) {
+        addCat(turn.code, 'tie')
+      } else {
+        const winner: Player = cmp > 0 ? 'A' : 'B'
+        if (winner === underdog) {
+          const hr = bestHandFrom6ShortDeck([...udHole, ...board4])
+          addCat(turn.code, shortDeckSplitCategoryFromHandRank(hr))
+        }
+      }
+    }
+    return nextToCats
+  }
+
+  if (street === 'turn' && board.length === 4) {
+    for (const river of deck) {
+      const board5 = [...board, river]
+      const cmp = compareShowdownShortDeck(playerA, playerB, board5)
+      if (cmp === 0) {
+        addCat(river.code, 'tie')
+      } else {
+        const winner: Player = cmp > 0 ? 'A' : 'B'
+        if (winner === underdog) {
+          const hr = bestHandFrom7ShortDeck([...udHole, ...board5])
+          addCat(river.code, shortDeckSplitCategoryFromHandRank(hr))
+        }
+      }
+    }
+    return nextToCats
+  }
+
+  return nextToCats
+}
+
+export function computeShortDeckSplitSelectionMetrics(
+  underdog: Player,
+  playerA: Card[],
+  playerB: Card[],
+  board: Card[],
+  street: 'flop' | 'turn',
+  selected: OmahaSplitCategoryId[],
+): OmahaSplitSelectionMetrics | null {
+  const uniqSelected = [...new Set(selected)]
+  if (uniqSelected.length === 0) {
+    return null
+  }
+  if (street === 'flop' && board.length !== 3) {
+    return null
+  }
+  if (street === 'turn' && board.length !== 4) {
+    return null
+  }
+
+  const nextToCats = buildShortDeckNextCardCategoryMap(underdog, playerA, playerB, board, street)
+  return finalizeSplitPurchaseMetrics('shortDeck', nextToCats, street, uniqSelected)
+}
+
 export const gameLabels: Record<GameType, string> = {
   holdem: '德州扑克',
   omaha: '奥马哈',
@@ -422,8 +520,8 @@ export function formatCardCodeForDisplay(code: string): string {
   return `${rank}${sym}`
 }
 
-/** 德州选牌器：点数自上而下展示顺序 */
-export const HOLDEM_GRID_RANKS = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'] as const
+/** 短牌选牌器：点数自上而下展示顺序（36 张：6–A） */
+export const SHORT_DECK_GRID_RANKS = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6'] as const
 
 /** 德州扑克普通 OUTS 默认赔率表（版本 B）；16 outs 及以上不在表中，由 getDefaultOdds 返回 null，界面显示「待确认」。 */
 export const holdemOddsTable: Record<number, number> = {
@@ -479,7 +577,21 @@ export const omahaOddsTable: Record<number, OddsValue> = {
 }
 
 export const shortDeckOddsTable: Record<number, OddsValue> = {
-  2: null,
+  1: 30,
+  2: 15,
+  3: 10,
+  4: 8,
+  5: 6,
+  6: 5,
+  7: 4,
+  8: 3.5,
+  9: 3,
+  10: 2.5,
+  11: 2.2,
+  12: 2,
+  13: 1.8,
+  14: 1.6,
+  15: 1.4,
 }
 
 const RANK_VALUE: Record<string, number> = {
@@ -695,6 +807,301 @@ function compareShowdown(playerA: Card[], playerB: Card[], board5: Card[]): numb
   const a7 = [...playerA, ...board5]
   const b7 = [...playerB, ...board5]
   return compareHandRank(bestHandFrom7(a7), bestHandFrom7(b7))
+}
+
+/** 短牌 5 张：编码 8 同花顺 > 7 四条 > 6 同花 > 5 葫芦 > 4 顺子 > 3 三条 > 2 两对 > 1 一对 > 0 高张；含 A6789 顺子。 */
+function evaluate5CardsShortDeck(cards: Card[]): HandRank {
+  const vals = cards.map((c) => rankValue(c.rank)).sort((x, y) => y - x)
+  const suitsArr = cards.map((c) => c.suit)
+  const flush = suitsArr.every((s) => s === suitsArr[0])
+
+  const freq = new Map<number, number>()
+  for (const v of vals) {
+    freq.set(v, (freq.get(v) ?? 0) + 1)
+  }
+  const groups = [...freq.entries()].sort((a, b) => {
+    if (b[1] !== a[1]) {
+      return b[1] - a[1]
+    }
+    return b[0] - a[0]
+  })
+
+  const uniqueSorted = [...new Set(vals)].sort((x, y) => x - y)
+
+  const isWheelShort =
+    uniqueSorted.length === 5 &&
+    uniqueSorted[0] === 6 &&
+    uniqueSorted[1] === 7 &&
+    uniqueSorted[2] === 8 &&
+    uniqueSorted[3] === 9 &&
+    uniqueSorted[4] === 14
+
+  let straightHigh = 0
+  if (uniqueSorted.length === 5) {
+    if (isWheelShort) {
+      straightHigh = 9
+    } else if (uniqueSorted[4]! - uniqueSorted[0]! === 4) {
+      straightHigh = uniqueSorted[4]!
+    }
+  }
+  const straight = straightHigh > 0
+
+  if (flush && straight) {
+    const cat = 8
+    if (isWheelShort) {
+      return [cat, 9] as const
+    }
+    if (straightHigh === 14) {
+      return [cat, 14] as const
+    }
+    return [cat, straightHigh] as const
+  }
+
+  if (groups[0]![1] === 4) {
+    const quad = groups[0]![0]
+    const kicker = groups[1]![0]
+    return [7, quad, kicker] as const
+  }
+
+  if (groups[0]![1] === 3 && groups[1]![1] === 2) {
+    return [5, groups[0]![0], groups[1]![0]] as const
+  }
+
+  if (flush) {
+    return [6, ...vals] as const
+  }
+
+  if (straight) {
+    return [4, straightHigh] as const
+  }
+
+  if (groups[0]![1] === 3) {
+    const t = groups[0]![0]
+    const kickers = groups.slice(1).map((g) => g[0])
+    return [3, t, ...kickers] as const
+  }
+
+  if (groups[0]![1] === 2 && groups[1]![1] === 2) {
+    const hi = Math.max(groups[0]![0], groups[1]![0])
+    const lo = Math.min(groups[0]![0], groups[1]![0])
+    const kicker = groups[2]![0]
+    return [2, hi, lo, kicker] as const
+  }
+
+  if (groups[0]![1] === 2) {
+    const p = groups[0]![0]
+    const kickers = groups.slice(1).map((g) => g[0])
+    return [1, p, ...kickers] as const
+  }
+
+  return [0, ...vals] as const
+}
+
+function shortDeckSplitCategoryFromHandRank(h: HandRank): OmahaSplitCategoryId {
+  const c = h[0] ?? 0
+  if (c === 8) {
+    return 'straightFlush'
+  }
+  if (c === 7) {
+    return 'fourKind'
+  }
+  if (c === 6) {
+    return 'flush'
+  }
+  if (c === 5) {
+    return 'fullHouse'
+  }
+  if (c === 4) {
+    return 'straight'
+  }
+  if (c === 3) {
+    return 'trips'
+  }
+  if (c === 2) {
+    return 'twoPair'
+  }
+  if (c === 1) {
+    return 'onePair'
+  }
+  return 'highCard'
+}
+
+function bestHandFrom7ShortDeck(cards7: Card[]): HandRank {
+  let best: HandRank | null = null
+  for (const five of combinations5From7(cards7)) {
+    const r = evaluate5CardsShortDeck(five)
+    if (!best || compareHandRank(r, best) > 0) {
+      best = r
+    }
+  }
+  return best ?? [0]
+}
+
+function bestHandFrom6ShortDeck(cards6: Card[]): HandRank {
+  let best: HandRank | null = null
+  for (let omit = 0; omit < 6; omit++) {
+    const five: Card[] = []
+    for (let j = 0; j < 6; j++) {
+      if (j !== omit) {
+        five.push(cards6[j]!)
+      }
+    }
+    const r = evaluate5CardsShortDeck(five)
+    if (!best || compareHandRank(r, best) > 0) {
+      best = r
+    }
+  }
+  return best ?? [0]
+}
+
+function bestHandFromHoleAndBoardShortDeck(cards: Card[]): HandRank {
+  const n = cards.length
+  if (n === 7) {
+    return bestHandFrom7ShortDeck(cards)
+  }
+  if (n === 6) {
+    return bestHandFrom6ShortDeck(cards)
+  }
+  if (n === 5) {
+    return evaluate5CardsShortDeck(cards)
+  }
+  if (n === 3) {
+    return evaluate3Cards(cards)
+  }
+  if (n <= 2) {
+    const vals = cards.map((c) => rankValue(c.rank)).sort((x, y) => y - x)
+    return [0, ...vals] as const
+  }
+  return [0]
+}
+
+function comparePartialShowdownShortDeck(playerA: Card[], playerB: Card[], board: Card[]): number {
+  const aCards = [...playerA, ...board]
+  const bCards = [...playerB, ...board]
+  return compareHandRank(
+    bestHandFromHoleAndBoardShortDeck(aCards),
+    bestHandFromHoleAndBoardShortDeck(bCards),
+  )
+}
+
+function compareShowdownShortDeck(playerA: Card[], playerB: Card[], board5: Card[]): number {
+  return compareHandRank(
+    bestHandFrom7ShortDeck([...playerA, ...board5]),
+    bestHandFrom7ShortDeck([...playerB, ...board5]),
+  )
+}
+
+function remainingDeckShortDeck(used: Card[]): Card[] {
+  const usedSet = new Set(used.map((c) => c.code))
+  return buildDeck('shortDeck').filter((c) => !usedSet.has(c.code))
+}
+
+/** 翻牌：runout 统计 + 下一张转牌直接反超 OUTS。 */
+function enumerateShortDeckFlopWithOuts(
+  underdog: Player,
+  playerA: Card[],
+  playerB: Card[],
+  board3: Card[],
+): {
+  total: number
+  underdogWins: number
+  ties: number
+  outs: number
+  overtakeCardCodesSorted: string[]
+  chopCardCodesSorted: string[]
+} {
+  const baseUsed = [...playerA, ...playerB, ...board3]
+  const deck = remainingDeckShortDeck(baseUsed)
+  const overtakeCardCodesSorted: string[] = []
+  const chopCardCodesSorted: string[] = []
+  for (const turn of deck) {
+    const board4 = [...board3, turn]
+    const cmp = comparePartialShowdownShortDeck(playerA, playerB, board4)
+    if (cmp === 0) {
+      chopCardCodesSorted.push(turn.code)
+    } else {
+      const winner: Player = cmp > 0 ? 'A' : 'B'
+      if (winner === underdog) {
+        overtakeCardCodesSorted.push(turn.code)
+      }
+    }
+  }
+  overtakeCardCodesSorted.sort()
+  chopCardCodesSorted.sort()
+
+  let total = 0
+  let underdogWins = 0
+  let ties = 0
+  const k = 5 - board3.length
+  forEachCombination(deck, k, (combo) => {
+    const board5 = [...board3, ...combo]
+    total += 1
+    const cmp = compareShowdownShortDeck(playerA, playerB, board5)
+    if (cmp === 0) {
+      ties += 1
+    } else {
+      const winner: Player = cmp > 0 ? 'A' : 'B'
+      if (winner === underdog) {
+        underdogWins += 1
+      }
+    }
+  })
+
+  return {
+    total,
+    underdogWins,
+    ties,
+    outs: overtakeCardCodesSorted.length,
+    overtakeCardCodesSorted,
+    chopCardCodesSorted,
+  }
+}
+
+/** 转牌：单张河牌枚举。 */
+function enumerateShortDeckTurnWithOuts(
+  underdog: Player,
+  playerA: Card[],
+  playerB: Card[],
+  board4: Card[],
+): {
+  total: number
+  underdogWins: number
+  ties: number
+  outs: number
+  overtakeCardCodesSorted: string[]
+  chopCardCodesSorted: string[]
+} {
+  const deck = remainingDeckShortDeck([...playerA, ...playerB, ...board4])
+  const overtakeCardCodesSorted: string[] = []
+  const chopCardCodesSorted: string[] = []
+  let total = 0
+  let underdogWins = 0
+  let ties = 0
+  for (const river of deck) {
+    total += 1
+    const board5 = [...board4, river]
+    const cmp = compareShowdownShortDeck(playerA, playerB, board5)
+    if (cmp === 0) {
+      ties += 1
+      chopCardCodesSorted.push(river.code)
+    } else {
+      const winner: Player = cmp > 0 ? 'A' : 'B'
+      if (winner === underdog) {
+        underdogWins += 1
+        overtakeCardCodesSorted.push(river.code)
+      }
+    }
+  }
+  overtakeCardCodesSorted.sort()
+  chopCardCodesSorted.sort()
+  return {
+    total,
+    underdogWins,
+    ties,
+    outs: overtakeCardCodesSorted.length,
+    overtakeCardCodesSorted,
+    chopCardCodesSorted,
+  }
 }
 
 /** 奥马哈：4 张手牌 + 5 张公共牌，严格恰好 2 张来自手牌、3 张来自公共牌，取最佳 5 张牌力。 */
@@ -1156,6 +1563,13 @@ export function validateCards(
     }
   }
 
+  if (gameType === 'shortDeck') {
+    const bl = board.length
+    if (bl !== 0 && bl !== 3 && bl !== 4 && bl !== 5) {
+      errors.push('短牌公共牌数量仅允许 0、3、4、5 张（不允许 1 或 2 张）')
+    }
+  }
+
   allCards.forEach((card) => {
     if (card.code.length !== 2 || !validRanks.has(card.rank) || !validSuits.has(card.suit)) {
       errors.push(`牌面格式无效：${card.code || '空值'}`)
@@ -1224,7 +1638,11 @@ export function getDefaultOdds(gameType: GameType, outs: number): OddsValue {
     return omahaOddsTable[outs] ?? null
   }
 
-  return shortDeckOddsTable[outs] ?? null
+  if (gameType === 'shortDeck') {
+    return shortDeckOddsTable[outs] ?? null
+  }
+
+  return null
 }
 
 export function formatAmount(value: number | null): string {
@@ -1334,6 +1752,18 @@ export function buildResultText(result: InsuranceResult): string {
     ].join('\n')
   }
 
+  if (result.gameType === 'shortDeck' && result.shortDeckCompactLayout) {
+    return [
+      '【短牌保险计算】',
+      `${result.outsDisplayLabel}：${result.outs}`,
+      `命中概率：${formatPercent(result.hitProbability)}`,
+      `${oddsLabel}：${formatOdds(result.defaultOdds)}`,
+      `买保本：${formatAmount(result.breakEvenInsurance)}`,
+      `买满池：${formatAmount(result.fullPotInsurance)}`,
+      result.algorithmStatus,
+    ].join('\n')
+  }
+
   return [
     `【${gameLabels[result.gameType]}保险计算】`,
     `领先方：玩家 ${result.leader}`,
@@ -1396,6 +1826,18 @@ export function calculateInsurance(input: InsuranceInput): {
     }
   }
 
+  if (input.gameType === 'shortDeck') {
+    if (input.street !== 'flop' && input.street !== 'turn') {
+      errors.push('短牌仅支持翻牌或转牌启动保险')
+    }
+    if (input.street === 'flop' && board.length !== 3) {
+      errors.push('短牌翻牌公共牌必须 3 张')
+    }
+    if (input.street === 'turn' && board.length !== 4) {
+      errors.push('短牌转牌公共牌必须 4 张')
+    }
+  }
+
   if (errors.length > 0) {
     return { errors, result: null }
   }
@@ -1423,6 +1865,11 @@ export function calculateInsurance(input: InsuranceInput): {
   let omahaEnum:
     | ReturnType<typeof enumerateOmahaFlopWithOuts>
     | ReturnType<typeof enumerateOmahaTurnWithOuts>
+    | null = null
+
+  let shortDeckEnum:
+    | ReturnType<typeof enumerateShortDeckFlopWithOuts>
+    | ReturnType<typeof enumerateShortDeckTurnWithOuts>
     | null = null
 
   if (input.gameType === 'holdem') {
@@ -1460,6 +1907,17 @@ export function calculateInsurance(input: InsuranceInput): {
     outs = r.outs
     hitProbability = enumResult.total > 0 ? enumResult.underdogWins / enumResult.total : 0
     algorithmStatus = omahaAlgoFootnote
+    outsDisplayLabel = '下一张有效 OUTS'
+  } else if (input.gameType === 'shortDeck') {
+    shortDeckEnum =
+      input.street === 'flop'
+        ? enumerateShortDeckFlopWithOuts(underdog, playerA, playerB, board)
+        : enumerateShortDeckTurnWithOuts(underdog, playerA, playerB, board)
+    const r = shortDeckEnum
+    outs = r.outs
+    hitProbability = r.total > 0 ? r.underdogWins / r.total : 0
+    algorithmStatus =
+      '短牌 36 张（6–A）；牌型顺序同花顺＞四条＞同花＞葫芦＞顺子＞三条＞…；含 A6789 顺子（A 作低张）。概率按完整 runout 枚举。'
     outsDisplayLabel = '下一张有效 OUTS'
   } else {
     outs = estimateOuts(input.gameType, input.leader, playerA, playerB, board)
@@ -1522,6 +1980,16 @@ export function calculateInsurance(input: InsuranceInput): {
     if (omahaEnum.chopCardCodesSorted.length > 0) {
       chopOutCardCodesDisplay = omahaEnum.chopCardCodesSorted.map(formatCardCodeForDisplay).join(' ')
     }
+  } else if (shortDeckEnum) {
+    chopOutsCount = shortDeckEnum.chopCardCodesSorted.length
+    if (shortDeckEnum.overtakeCardCodesSorted.length > 0) {
+      directOutCardCodesDisplay = shortDeckEnum.overtakeCardCodesSorted
+        .map(formatCardCodeForDisplay)
+        .join(' ')
+    }
+    if (shortDeckEnum.chopCardCodesSorted.length > 0) {
+      chopOutCardCodesDisplay = shortDeckEnum.chopCardCodesSorted.map(formatCardCodeForDisplay).join(' ')
+    }
   }
 
   const breakEvenInsurance = calculateBreakEvenInsurance(input.allInAmount, defaultOdds)
@@ -1542,6 +2010,8 @@ export function calculateInsurance(input: InsuranceInput): {
     }
   } else if (input.gameType === 'omaha') {
     advice = ''
+  } else if (input.gameType === 'shortDeck') {
+    advice = ''
   } else if (defaultOdds) {
     advice = '可按默认赔率参考买保本或买满池，最终以现场确认赔率为准'
   } else {
@@ -1551,11 +2021,17 @@ export function calculateInsurance(input: InsuranceInput): {
   const oddsLineLabel =
     input.gameType === 'holdem' && pairVsPair ? '赔率' : input.gameType === 'holdem' ? '自动匹配赔率' : '默认赔率'
   const leaderHandDisplay =
-    input.gameType === 'holdem' ? formatCardSpaceStringForDisplay(input.playerAInput) : undefined
+    input.gameType === 'holdem' || input.gameType === 'shortDeck'
+      ? formatCardSpaceStringForDisplay(input.playerAInput)
+      : undefined
   const underdogHandDisplay =
-    input.gameType === 'holdem' ? formatCardSpaceStringForDisplay(input.playerBInput) : undefined
+    input.gameType === 'holdem' || input.gameType === 'shortDeck'
+      ? formatCardSpaceStringForDisplay(input.playerBInput)
+      : undefined
   const boardDisplay =
-    input.gameType === 'holdem' ? formatCardSpaceStringForDisplay(input.boardInput) : undefined
+    input.gameType === 'holdem' || input.gameType === 'shortDeck'
+      ? formatCardSpaceStringForDisplay(input.boardInput)
+      : undefined
 
   const resultBase: Omit<InsuranceResult, 'resultText'> = {
     gameType: input.gameType,
@@ -1579,6 +2055,7 @@ export function calculateInsurance(input: InsuranceInput): {
     holdemSetMiningCardsDisplay,
     holdemPairRuleHint,
     omahaCompactLayout: input.gameType === 'omaha' ? true : undefined,
+    shortDeckCompactLayout: input.gameType === 'shortDeck' ? true : undefined,
     directOutCardCodesDisplay,
     chopOutCardCodesDisplay,
     chopOutsCount,
