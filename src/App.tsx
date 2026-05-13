@@ -1099,10 +1099,19 @@ function App() {
     <main className="app-shell app-shell-safe">
       <header className="app-header">
         <h1 className="app-title-main">扑克保险 V1</h1>
+        <p className="release-tagline">
+          线下两家 All-in 保险计算工具，支持德州扑克、奥马哈、短牌。
+        </p>
         {activeGame !== 'holdem' ? (
           <p className="subtitle">只做当前领先方买保险，领先方由用户手动指定。</p>
         ) : null}
       </header>
+
+      <section className="panel release-usage-panel" aria-label="使用说明">
+        <p className="release-usage-text">
+          选择玩法 → 输入手牌和公共牌 → 选择领先方 → 输入底池和投入 → 计算保险
+        </p>
+      </section>
 
       <nav className="game-tabs game-tabs-dock" aria-label="游戏类型">
         {gameConfigs.map((game) => (
@@ -1943,6 +1952,15 @@ function App() {
           {copyStatus && <p className="copy-status">{copyStatus}</p>}
         </section>
       )}
+
+      <footer className="release-footer">
+        <p className="release-footer-line">
+          测试版提示：本工具仅辅助计算，实际保险赔率和结算请以牌局约定为准。
+        </p>
+        <p className="release-footer-line">
+          隐私说明：所有计算仅在本机浏览器完成，不登录，不上传，不保存牌局数据。
+        </p>
+      </footer>
     </main>
   )
 }

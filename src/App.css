@@ -1199,3 +1199,50 @@ label.holdem-street-row {
   min-height: 44px;
   border-radius: 10px;
 }
+
+/* Stage 5：发布版说明（仅文案与样式） */
+.release-tagline {
+  margin: 8px 0 0;
+  padding: 0 2px;
+  color: #d4e5d8;
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 650;
+  word-break: break-word;
+}
+
+.release-usage-panel {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.14);
+  border: 1px solid rgba(215, 181, 109, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.release-usage-text {
+  margin: 0;
+  color: #e8f4ea;
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 650;
+  word-break: break-word;
+}
+
+.release-footer {
+  margin-top: 18px;
+  padding: 12px 4px 8px;
+  border-top: 1px solid rgba(215, 181, 109, 0.15);
+}
+
+.release-footer-line {
+  margin: 0 0 8px;
+  color: #9db1a6;
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.release-footer-line:last-child {
+  margin-bottom: 0;
+}
