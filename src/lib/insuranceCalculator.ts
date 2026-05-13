@@ -47,6 +47,8 @@ export type InsuranceResult = {
   holdemInsuranceTypeLabel?: string | null
   holdemSetMiningCardsDisplay?: string | null
   holdemPairRuleHint?: string | null
+  /** 奥马哈结果卡片使用与德州类似的紧凑布局 */
+  omahaCompactLayout?: boolean
 }
 
 export const gameLabels: Record<GameType, string> = {
@@ -87,7 +89,27 @@ export function formatCardCodeForDisplay(code: string): string {
 /** 德州选牌器：点数自上而下展示顺序 */
 export const HOLDEM_GRID_RANKS = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'] as const
 
+/** 德州扑克普通 OUTS 默认赔率表（版本 B）；16 outs 及以上不在表中，由 getDefaultOdds 返回 null，界面显示「待确认」。 */
 export const holdemOddsTable: Record<number, number> = {
+  1: 30,
+  2: 15,
+  3: 10,
+  4: 8,
+  5: 6,
+  6: 5,
+  7: 4,
+  8: 3.5,
+  9: 3,
+  10: 2.5,
+  11: 2.2,
+  12: 2,
+  13: 1.8,
+  14: 1.6,
+  15: 1.4,
+}
+
+/** 奥马哈 V1 默认参考赔率（1–20 outs）；超过 20 由 getDefaultOdds 返回 null，界面显示「待确认」。 */
+export const omahaOddsTable: Record<number, OddsValue> = {
   1: 30,
   2: 15,
   3: 10,
@@ -108,10 +130,6 @@ export const holdemOddsTable: Record<number, number> = {
   18: 1,
   19: 1,
   20: 1,
-}
-
-export const omahaOddsTable: Record<number, OddsValue> = {
-  2: null,
 }
 
 export const shortDeckOddsTable: Record<number, OddsValue> = {
@@ -469,108 +487,23 @@ function enumerateHoldem(
   return { total, underdogWins, ties }
 }
 
-function countOmahaOuts(
+/** 翻牌（3 张公共牌）：一次 C(41,2) 枚举同时得到 runout 统计与「下一张有效 OUTS」（下一张转牌按 code 去重）。 */
+function enumerateOmahaFlopWithOuts(
   underdog: Player,
   playerA: Card[],
   playerB: Card[],
-  board: Card[],
-): number {
-  if (board.length >= 5) {
-    return 0
-  }
-  const baseUsed = [...playerA, ...playerB, ...board]
-
-  if (board.length === 4) {
-    const deck = remainingDeckOmaha(baseUsed)
-    let count = 0
-    for (const river of deck) {
-      const board5 = [...board, river]
-      const cmp = compareOmahaShowdown(playerA, playerB, board5)
-      if (cmp === 0) {
-        continue
-      }
-      const winner: Player = cmp > 0 ? 'A' : 'B'
-      if (winner === underdog) {
-        count += 1
-      }
-    }
-    return count
-  }
-
-  if (board.length === 3) {
-    const deck = remainingDeckOmaha(baseUsed)
-    let count = 0
-    for (const turn of deck) {
-      const usedTurn = [...baseUsed, turn]
-      const deck2 = remainingDeckOmaha(usedTurn)
-      let hasWinningRiver = false
-      for (const river of deck2) {
-        const board5 = [...board, turn, river]
-        const cmp = compareOmahaShowdown(playerA, playerB, board5)
-        if (cmp === 0) {
-          continue
-        }
-        const winner: Player = cmp > 0 ? 'A' : 'B'
-        if (winner === underdog) {
-          hasWinningRiver = true
-          break
-        }
-      }
-      if (hasWinningRiver) {
-        count += 1
-      }
-    }
-    return count
-  }
-
-  const goodCodes = new Set<string>()
-  const deck48 = remainingDeckOmaha([...playerA, ...playerB])
-  forEachCombination(deck48, 5, (combo) => {
-    const board5 = combo
-    const cmp = compareOmahaShowdown(playerA, playerB, board5)
-    if (cmp === 0) {
-      return
-    }
-    const winner: Player = cmp > 0 ? 'A' : 'B'
-    if (winner === underdog) {
-      for (const c of board5) {
-        goodCodes.add(c.code)
-      }
-    }
-  })
-  return goodCodes.size
-}
-
-function enumerateOmaha(
-  underdog: Player,
-  playerA: Card[],
-  playerB: Card[],
-  board: Card[],
-): HoldemEnumResult {
-  const deck = remainingDeckOmaha([...playerA, ...playerB, ...board])
-  const k = 5 - board.length
-
-  if (k <= 0) {
-    const cmp = compareOmahaShowdown(playerA, playerB, board)
-    let underdogWins = 0
-    let ties = 0
-    if (cmp === 0) {
-      ties = 1
-    } else {
-      const winner: Player = cmp > 0 ? 'A' : 'B'
-      if (winner === underdog) {
-        underdogWins = 1
-      }
-    }
-    return { total: 1, underdogWins, ties }
-  }
-
+  board3: Card[],
+): { total: number; underdogWins: number; ties: number; outs: number } {
+  const baseUsed = [...playerA, ...playerB, ...board3]
+  const deck = remainingDeckOmaha(baseUsed)
+  const goodTurnCodes = new Set<string>()
   let total = 0
   let underdogWins = 0
   let ties = 0
-
-  forEachCombination(deck, k, (combo) => {
-    const board5 = [...board, ...combo]
+  forEachCombination(deck, 2, (combo) => {
+    const turn = combo[0]!
+    const river = combo[1]!
+    const board5 = [...board3, turn, river]
     total += 1
     const cmp = compareOmahaShowdown(playerA, playerB, board5)
     if (cmp === 0) {
@@ -579,11 +512,40 @@ function enumerateOmaha(
       const winner: Player = cmp > 0 ? 'A' : 'B'
       if (winner === underdog) {
         underdogWins += 1
+        goodTurnCodes.add(turn.code)
       }
     }
   })
+  return { total, underdogWins, ties, outs: goodTurnCodes.size }
+}
 
-  return { total, underdogWins, ties }
+/** 转牌（4 张公共牌）：单遍枚举河牌，同时得到统计与 OUTS（下一张河牌按 code 去重）。 */
+function enumerateOmahaTurnWithOuts(
+  underdog: Player,
+  playerA: Card[],
+  playerB: Card[],
+  board4: Card[],
+): { total: number; underdogWins: number; ties: number; outs: number } {
+  const deck = remainingDeckOmaha([...playerA, ...playerB, ...board4])
+  const goodRiverCodes = new Set<string>()
+  let total = 0
+  let underdogWins = 0
+  let ties = 0
+  for (const river of deck) {
+    total += 1
+    const board5 = [...board4, river]
+    const cmp = compareOmahaShowdown(playerA, playerB, board5)
+    if (cmp === 0) {
+      ties += 1
+    } else {
+      const winner: Player = cmp > 0 ? 'A' : 'B'
+      if (winner === underdog) {
+        underdogWins += 1
+        goodRiverCodes.add(river.code)
+      }
+    }
+  }
+  return { total, underdogWins, ties, outs: goodRiverCodes.size }
 }
 
 export function parseCards(input: string): Card[] {
@@ -701,7 +663,7 @@ export function validateCards(
   if (playerA.length !== handSize) {
     errors.push(
       gameType === 'omaha'
-        ? `奥马哈领先方（玩家 A）手牌必须为 4 张（当前 ${playerA.length} 张）`
+        ? '奥马哈领先方必须 4 张'
         : `玩家 A 手牌需要 ${handSize} 张`,
     )
   }
@@ -709,7 +671,7 @@ export function validateCards(
   if (playerB.length !== handSize) {
     errors.push(
       gameType === 'omaha'
-        ? `奥马哈落后方（玩家 B）手牌必须为 4 张（当前 ${playerB.length} 张）`
+        ? '奥马哈落后方必须 4 张'
         : `玩家 B 手牌需要 ${handSize} 张`,
     )
   }
@@ -723,13 +685,6 @@ export function validateCards(
     if (bl !== 0 && bl !== 3 && bl !== 4 && bl !== 5) {
       errors.push('德州扑克公共牌数量仅允许 0、3、4、5 张（不允许 1 或 2 张）')
     }
-  } else if (gameType === 'omaha') {
-    const bl = board.length
-    if (bl !== 0 && bl !== 3 && bl !== 4 && bl !== 5) {
-      errors.push('奥马哈公共牌数量必须为 0、3、4 或 5')
-    }
-  } else if (board.length > 5) {
-    /* covered above */
   }
 
   allCards.forEach((card) => {
@@ -898,6 +853,18 @@ export function buildResultText(result: InsuranceResult): string {
     return collectHoldemResultLines(result).join('\n')
   }
 
+  if (result.gameType === 'omaha' && result.omahaCompactLayout) {
+    return [
+      '【奥马哈保险计算】',
+      `${result.outsDisplayLabel}：${result.outs}`,
+      `命中概率：${formatPercent(result.hitProbability)}`,
+      `${oddsLabel}：${formatOdds(result.defaultOdds)}`,
+      `买保本：${formatAmount(result.breakEvenInsurance)}`,
+      `买满池：${formatAmount(result.fullPotInsurance)}`,
+      result.algorithmStatus,
+    ].join('\n')
+  }
+
   return [
     `【${gameLabels[result.gameType]}保险计算】`,
     `领先方：玩家 ${result.leader}`,
@@ -922,15 +889,15 @@ export function calculateInsurance(input: InsuranceInput): {
   const errors = validateCards(input.gameType, playerA, playerB, board)
 
   if (input.potAmount <= 0) {
-    errors.push('总底池需要大于 0')
+    errors.push('总底池必须大于 0')
   }
 
   if (input.allInAmount <= 0) {
-    errors.push('领先方本次 All-in 投入需要大于 0')
+    errors.push('投入必须大于 0')
   }
 
   if (input.potAmount > 0 && input.allInAmount > input.potAmount) {
-    errors.push('领先方本次 All-in 投入不能大于总底池')
+    errors.push('投入不能大于总底池')
   }
 
   if (input.gameType === 'holdem') {
@@ -949,17 +916,14 @@ export function calculateInsurance(input: InsuranceInput): {
   }
 
   if (input.gameType === 'omaha') {
-    if (input.street === 'preflop' && board.length !== 0) {
-      errors.push('奥马哈翻前公共牌必须为 0 张')
+    if (input.street !== 'flop' && input.street !== 'turn') {
+      errors.push('奥马哈仅支持翻牌或转牌启动保险')
     }
     if (input.street === 'flop' && board.length !== 3) {
-      errors.push('奥马哈翻牌公共牌必须为 3 张')
+      errors.push('奥马哈翻牌公共牌必须 3 张')
     }
     if (input.street === 'turn' && board.length !== 4) {
-      errors.push('奥马哈转牌公共牌必须为 4 张')
-    }
-    if (input.street === 'river' && board.length !== 5) {
-      errors.push('奥马哈河牌公共牌必须为 5 张')
+      errors.push('奥马哈转牌公共牌必须 4 张')
     }
   }
 
@@ -973,7 +937,7 @@ export function calculateInsurance(input: InsuranceInput): {
 
   const holdemAlgoShort = HOLDEM_RESULT_FOOTER
   const frameworkStatus = '当前为计算框架与基础估算，精确枚举算法待下一阶段接入'
-  const omahaAlgoStatus = '奥马哈已按严格 2 张手牌 + 3 张公共牌枚举。'
+  const omahaAlgoFootnote = '奥马哈按严格 2手牌 + 3公共牌枚举。'
 
   const pairVsPair =
     input.gameType === 'holdem' &&
@@ -1009,11 +973,19 @@ export function calculateInsurance(input: InsuranceInput): {
       outsDisplayLabel = '当前街直接 outs'
     }
   } else if (input.gameType === 'omaha') {
-    const enumResult = enumerateOmaha(underdog, playerA, playerB, board)
-    outs = countOmahaOuts(underdog, playerA, playerB, board)
+    const r =
+      input.street === 'flop'
+        ? enumerateOmahaFlopWithOuts(underdog, playerA, playerB, board)
+        : enumerateOmahaTurnWithOuts(underdog, playerA, playerB, board)
+    const enumResult: HoldemEnumResult = {
+      total: r.total,
+      underdogWins: r.underdogWins,
+      ties: r.ties,
+    }
+    outs = r.outs
     hitProbability = enumResult.total > 0 ? enumResult.underdogWins / enumResult.total : 0
-    algorithmStatus = omahaAlgoStatus
-    outsDisplayLabel = board.length >= 5 ? 'OUTS' : '下一张有效 OUTS'
+    algorithmStatus = omahaAlgoFootnote
+    outsDisplayLabel = '下一张有效 OUTS'
   } else {
     outs = estimateOuts(input.gameType, input.leader, playerA, playerB, board)
     hitProbability = calculateHitProbability(outs, remainingCards)
@@ -1070,9 +1042,7 @@ export function calculateInsurance(input: InsuranceInput): {
       advice = defaultOdds ? '可参考买保本、买满池，现场定价为准。' : '赔率待确认，金额仅供参考。'
     }
   } else if (input.gameType === 'omaha') {
-    advice = defaultOdds
-      ? '奥马哈已按严格 2+3 枚举；可参考买保本或买满池，最终以现场确认赔率为准'
-      : '赔率待确认，金额仅供参考。'
+    advice = ''
   } else if (defaultOdds) {
     advice = '可按默认赔率参考买保本或买满池，最终以现场确认赔率为准'
   } else {
@@ -1109,6 +1079,7 @@ export function calculateInsurance(input: InsuranceInput): {
     holdemInsuranceTypeLabel,
     holdemSetMiningCardsDisplay,
     holdemPairRuleHint,
+    omahaCompactLayout: input.gameType === 'omaha' ? true : undefined,
   }
   const result: InsuranceResult = {
     ...resultBase,

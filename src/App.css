@@ -520,6 +520,18 @@ select:focus {
   gap: 6px;
 }
 
+.holdem-selected-row-tight.holdem-selected-row-omaha {
+  min-height: 38px;
+}
+
+.holdem-leader-row .holdem-field-label {
+  margin-bottom: 2px;
+}
+
+.holdem-seg-inline {
+  width: 100%;
+}
+
 .holdem-chip-sm {
   padding: 6px 8px;
   font-size: 14px;

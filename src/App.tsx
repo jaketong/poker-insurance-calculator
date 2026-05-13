@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import {
   calculateInsurance,
@@ -53,6 +53,9 @@ type FormState = {
   holdemLeaderCodes?: string[]
   holdemUnderdogCodes?: string[]
   holdemBoardCodes?: string[]
+  omahaLeaderCodes?: string[]
+  omahaUnderdogCodes?: string[]
+  omahaBoardCodes?: string[]
 }
 
 const gameConfigs: GameConfig[] = [
@@ -69,7 +72,7 @@ const gameConfigs: GameConfig[] = [
   {
     type: 'omaha',
     label: '奥马哈',
-    rules: ['标准 52 张牌', '每人 4 张手牌', '必须严格使用 2 张手牌 + 3 张公共牌', '不能按德州扑克规则计算'],
+    rules: [],
     placeholders: {
       playerA: 'Ah As Kd Qd',
       playerB: 'Jc Tc 9h 8h',
@@ -101,6 +104,11 @@ const streetOptionsHoldem: { value: Street; label: string }[] = [
   { value: 'turn', label: '转牌' },
 ]
 
+const streetOptionsOmaha: { value: Street; label: string }[] = [
+  { value: 'flop', label: '翻牌' },
+  { value: 'turn', label: '转牌' },
+]
+
 const initialForms: Record<GameType, FormState> = {
   holdem: {
     playerAInput: 'Ah As',
@@ -123,6 +131,9 @@ const initialForms: Record<GameType, FormState> = {
     street: 'flop',
     potAmount: '10000',
     allInAmount: '3000',
+    omahaLeaderCodes: ['Ah', 'As', 'Kd', 'Qd'],
+    omahaUnderdogCodes: ['Jc', 'Tc', '9h', '8h'],
+    omahaBoardCodes: ['Kh', 'Qs', '2d'],
   },
   shortDeck: {
     playerAInput: 'Ah Kh',
@@ -148,10 +159,36 @@ function holdemMaxBoardCards(street: Street): number {
   return 0
 }
 
+function omahaMaxBoardCards(street: Street): number {
+  if (street === 'flop') {
+    return 3
+  }
+  if (street === 'turn') {
+    return 4
+  }
+  return 0
+}
+
+function omahaEffectiveStreet(street: Street): Street {
+  return street === 'flop' || street === 'turn' ? street : 'flop'
+}
+
 function syncHoldemTextFromCodes(f: FormState): FormState {
   const leader = f.holdemLeaderCodes ?? []
   const under = f.holdemUnderdogCodes ?? []
   const board = f.holdemBoardCodes ?? []
+  return {
+    ...f,
+    playerAInput: leader.join(' '),
+    playerBInput: under.join(' '),
+    boardInput: board.join(' '),
+  }
+}
+
+function syncOmahaTextFromCodes(f: FormState): FormState {
+  const leader = f.omahaLeaderCodes ?? []
+  const under = f.omahaUnderdogCodes ?? []
+  const board = f.omahaBoardCodes ?? []
   return {
     ...f,
     playerAInput: leader.join(' '),
@@ -170,11 +207,18 @@ function App() {
   const [holdemPickerOpen, setHoldemPickerOpen] = useState<'leader' | 'underdog' | 'board' | null>(null)
   /** 仅在结果卡片内填写，与表单分离 */
   const [holdemResultCustomBuy, setHoldemResultCustomBuy] = useState('')
+  const [omahaResultCustomBuy, setOmahaResultCustomBuy] = useState('')
+  const [omahaPickerOpen, setOmahaPickerOpen] = useState<'leader' | 'underdog' | 'board' | null>(null)
   const holdemLenRef = useRef<{ l: number; u: number; b: number } | null>(null)
+  const omahaLenRef = useRef<{ l: number; u: number; b: number } | null>(null)
 
   useEffect(() => {
     holdemLenRef.current = null
   }, [holdemPickerOpen])
+
+  useEffect(() => {
+    omahaLenRef.current = null
+  }, [omahaPickerOpen])
 
   useEffect(() => {
     if (activeGame !== 'holdem' || !holdemPickerOpen) {
@@ -205,6 +249,36 @@ function App() {
       setHoldemPickerOpen(null)
     }
   }, [activeGame, forms.holdem, holdemPickerOpen])
+
+  useEffect(() => {
+    if (activeGame !== 'omaha' || !omahaPickerOpen) {
+      return
+    }
+    const o = forms.omaha
+    const lens = {
+      l: (o.omahaLeaderCodes ?? []).length,
+      u: (o.omahaUnderdogCodes ?? []).length,
+      b: (o.omahaBoardCodes ?? []).length,
+    }
+    const cap =
+      omahaPickerOpen === 'leader' || omahaPickerOpen === 'underdog'
+        ? 4
+        : omahaMaxBoardCards(omahaEffectiveStreet(o.street))
+    if (cap <= 0) {
+      omahaLenRef.current = lens
+      return
+    }
+    const cur = omahaPickerOpen === 'leader' ? lens.l : omahaPickerOpen === 'underdog' ? lens.u : lens.b
+    const prev = omahaLenRef.current
+    omahaLenRef.current = lens
+    if (!prev) {
+      return
+    }
+    const prevLen = omahaPickerOpen === 'leader' ? prev.l : omahaPickerOpen === 'underdog' ? prev.u : prev.b
+    if (cur >= cap && prevLen < cap) {
+      setOmahaPickerOpen(null)
+    }
+  }, [activeGame, forms.omaha, omahaPickerOpen])
 
   const activeConfig = useMemo(
     () => gameConfigs.find((game) => game.type === activeGame) ?? gameConfigs[0],
@@ -260,6 +334,33 @@ function App() {
       maxBuyDisplay: formatAmount(result.fullPotInsurance),
     }
   }, [result, holdemResultCustomBuy, forms.holdem.potAmount])
+
+  const omahaCustomPreview = useMemo(() => {
+    if (!result || result.gameType !== 'omaha' || !result.omahaCompactLayout) {
+      return null
+    }
+    const pot = Number(forms.omaha.potAmount)
+    const raw = omahaResultCustomBuy.trim()
+    if (!raw) {
+      return { kind: 'empty' as const }
+    }
+    const amt = Number(raw)
+    if (!Number.isFinite(amt) || amt <= 0) {
+      return { kind: 'invalid' as const }
+    }
+    const odds = result.defaultOdds
+    if (!odds || odds <= 0) {
+      return { kind: 'pending' as const, amount: amt }
+    }
+    const payout = amt * odds
+    const exceeds = Number.isFinite(pot) && payout > pot
+    return {
+      kind: exceeds ? ('over' as const) : ('ok' as const),
+      amount: amt,
+      payout,
+      maxBuyDisplay: formatAmount(result.fullPotInsurance),
+    }
+  }, [result, omahaResultCustomBuy, forms.omaha.potAmount])
 
   function updateForm(field: keyof FormState, value: string) {
     setPickerHint('')
@@ -344,6 +445,78 @@ function App() {
     })
   }
 
+  const updateOmahaStreet = useCallback((nextStreet: Street) => {
+    setPickerHint('')
+    setOmahaPickerOpen(null)
+    setForms((current) => {
+      const o = current.omaha
+      const maxB = omahaMaxBoardCards(nextStreet)
+      let board = [...(o.omahaBoardCodes ?? [])]
+      if (board.length > maxB) {
+        board = board.slice(0, maxB)
+      }
+      const nextO = syncOmahaTextFromCodes({
+        ...o,
+        street: nextStreet,
+        omahaBoardCodes: board,
+      })
+      return { ...current, omaha: nextO }
+    })
+  }, [])
+
+  function toggleOmahaCard(zone: 'leader' | 'underdog' | 'board', code: string) {
+    setPickerHint('')
+    setForms((current) => {
+      const o = current.omaha
+      const leader = [...(o.omahaLeaderCodes ?? [])]
+      const under = [...(o.omahaUnderdogCodes ?? [])]
+      const board = [...(o.omahaBoardCodes ?? [])]
+      const maxLeader = 4
+      const maxUnder = 4
+      const maxBoard = omahaMaxBoardCards(omahaEffectiveStreet(o.street))
+
+      const usedElsewhere = new Set<string>()
+      if (zone !== 'leader') {
+        leader.forEach((c) => usedElsewhere.add(c))
+      }
+      if (zone !== 'underdog') {
+        under.forEach((c) => usedElsewhere.add(c))
+      }
+      if (zone !== 'board') {
+        board.forEach((c) => usedElsewhere.add(c))
+      }
+
+      const pickFrom = () => (zone === 'leader' ? leader : zone === 'underdog' ? under : board)
+
+      let target = pickFrom()
+      if (target.includes(code)) {
+        target = target.filter((c) => c !== code)
+      } else {
+        if (usedElsewhere.has(code)) {
+          queueMicrotask(() => setPickerHint('该牌已被其他区域选中'))
+          return current
+        }
+        const cap = zone === 'leader' ? maxLeader : zone === 'underdog' ? maxUnder : maxBoard
+        if (target.length >= cap) {
+          queueMicrotask(() =>
+            setPickerHint(zone === 'board' ? `公共牌当前街最多 ${cap} 张` : '该区域已选满'),
+          )
+          return current
+        }
+        target = [...target, code]
+      }
+
+      const nextO = syncOmahaTextFromCodes(
+        zone === 'leader'
+          ? { ...o, omahaLeaderCodes: target }
+          : zone === 'underdog'
+            ? { ...o, omahaUnderdogCodes: target }
+            : { ...o, omahaBoardCodes: target },
+      )
+      return { ...current, omaha: nextO }
+    })
+  }
+
   function handleCalculate() {
     const raw = forms[activeGame]
     let form: FormState =
@@ -354,7 +527,14 @@ function App() {
             holdemUnderdogCodes: raw.holdemUnderdogCodes ?? [],
             holdemBoardCodes: raw.holdemBoardCodes ?? [],
           })
-        : raw
+        : activeGame === 'omaha'
+          ? syncOmahaTextFromCodes({
+              ...raw,
+              omahaLeaderCodes: raw.omahaLeaderCodes ?? [],
+              omahaUnderdogCodes: raw.omahaUnderdogCodes ?? [],
+              omahaBoardCodes: raw.omahaBoardCodes ?? [],
+            })
+          : raw
 
     const safeStreet: Street =
       activeGame === 'holdem' && form.street === 'river' ? 'turn' : form.street
@@ -388,27 +568,38 @@ function App() {
         : {}),
     }
 
-    try {
-      const calculation = calculateInsurance(payload)
+    const applyCalculation = () => {
+      try {
+        const calculation = calculateInsurance(payload)
 
-      if (activeGame === 'holdem' && form.street === 'river') {
-        setForms((c) => ({ ...c, holdem: { ...c.holdem, street: 'turn' } }))
+        if (activeGame === 'holdem' && form.street === 'river') {
+          setForms((c) => ({ ...c, holdem: { ...c.holdem, street: 'turn' } }))
+        }
+
+        setErrors(calculation.errors)
+        setResult(calculation.result)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        setErrors([`计算过程出错：${msg}`])
+        setResult(null)
       }
-
-      setErrors(calculation.errors)
-      setResult(calculation.result)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      setErrors([`计算过程出错：${msg}`])
-      setResult(null)
     }
 
-    setCopyStatus('')
-    setPickerHint('')
-    setHoldemPickerOpen(null)
-    if (activeGame === 'holdem') {
-      setHoldemResultCustomBuy('')
+    const finishCalculateUi = () => {
+      setCopyStatus('')
+      setPickerHint('')
+      setHoldemPickerOpen(null)
+      setOmahaPickerOpen(null)
+      if (activeGame === 'holdem') {
+        setHoldemResultCustomBuy('')
+      }
+      if (activeGame === 'omaha') {
+        setOmahaResultCustomBuy('')
+      }
     }
+
+    applyCalculation()
+    finishCalculateUi()
   }
 
   async function handleCopy() {
@@ -446,7 +637,24 @@ function App() {
               setCopyStatus('')
               setPickerHint('')
               setHoldemPickerOpen(null)
+              setOmahaPickerOpen(null)
               setHoldemResultCustomBuy('')
+              setOmahaResultCustomBuy('')
+              if (game.type === 'omaha') {
+                setForms((c) => {
+                  const o = c.omaha
+                  const street: Street = o.street === 'flop' || o.street === 'turn' ? o.street : 'flop'
+                  const maxB = omahaMaxBoardCards(street)
+                  let board = [...(o.omahaBoardCodes ?? [])]
+                  if (board.length > maxB) {
+                    board = board.slice(0, maxB)
+                  }
+                  return {
+                    ...c,
+                    omaha: syncOmahaTextFromCodes({ ...o, street, omahaBoardCodes: board }),
+                  }
+                })
+              }
             }}
           >
             {game.type === 'holdem' ? (
@@ -458,7 +666,7 @@ function App() {
         ))}
       </nav>
 
-      {activeGame !== 'holdem' ? (
+      {activeGame === 'shortDeck' ? (
         <section className="panel">
           <div className="section-title">
             <span>{activeConfig.label}</span>
@@ -476,7 +684,9 @@ function App() {
         </section>
       ) : null}
 
-      <section className={`panel form-panel${activeGame === 'holdem' ? ' form-panel-holdem' : ''}`}>
+      <section
+        className={`panel form-panel${activeGame === 'holdem' || activeGame === 'omaha' ? ' form-panel-holdem' : ''}`}
+      >
         {activeGame === 'holdem' ? (
           <HoldemForm
             form={activeForm}
@@ -496,6 +706,20 @@ function App() {
                 holdem: { ...c.holdem, holdemPreflopPairInsurance: mode },
               }))
             }}
+          />
+        ) : activeGame === 'omaha' ? (
+          <OmahaForm
+            form={activeForm}
+            pickerHint={pickerHint}
+            openZone={omahaPickerOpen}
+            onTogglePickerZone={(zone) => {
+              setOmahaPickerOpen((z) => (z === zone ? null : zone))
+            }}
+            onToggleCard={toggleOmahaCard}
+            onStreetChange={updateOmahaStreet}
+            onPotChange={(value) => updateForm('potAmount', value)}
+            onAllInChange={(value) => updateForm('allInAmount', value)}
+            onLeaderChange={(player) => updateForm('leader', player)}
           />
         ) : (
           <>
@@ -555,7 +779,7 @@ function App() {
           </>
         )}
 
-        {activeGame !== 'holdem' ? (
+        {activeGame === 'shortDeck' ? (
           <>
             <label>
               总底池
@@ -596,7 +820,11 @@ function App() {
 
       {result && (
         <section className="result-card" aria-label="保险计算结果">
-          {result.gameType === 'holdem' && result.leaderHandDisplay !== undefined ? (
+          {result.gameType === 'omaha' && result.omahaCompactLayout ? (
+            <div className="result-card-header result-card-header-holdem">
+              <h2 className="holdem-game-title">{gameLabels.omaha}保险结果</h2>
+            </div>
+          ) : result.gameType === 'holdem' && result.leaderHandDisplay !== undefined ? (
             <div className="result-card-header result-card-header-holdem">
               <h2 className="holdem-game-title">{HOLDEM_GAME_NAME}保险结果</h2>
             </div>
@@ -610,7 +838,72 @@ function App() {
             </div>
           )}
 
-          {result.gameType === 'holdem' && result.leaderHandDisplay !== undefined ? (
+          {result.gameType === 'omaha' && result.omahaCompactLayout ? (
+            <>
+              <div className="holdem-result-compact">
+                <div className="holdem-rcell">
+                  <span>{result.outsDisplayLabel}</span>
+                  <strong>{result.outs}</strong>
+                </div>
+                <div className="holdem-rcell">
+                  <span>命中概率</span>
+                  <strong>{formatPercent(result.hitProbability)}</strong>
+                </div>
+                <div className="holdem-rcell">
+                  <span>赔率</span>
+                  <strong>{formatOdds(result.defaultOdds)}</strong>
+                </div>
+                <div className="holdem-rcell">
+                  <span>买保本</span>
+                  <strong>{formatAmount(result.breakEvenInsurance)}</strong>
+                </div>
+                <div className="holdem-rcell holdem-rcell-span2">
+                  <span>买满池</span>
+                  <strong>{formatAmount(result.fullPotInsurance)}</strong>
+                </div>
+              </div>
+
+              <div className="holdem-result-custom holdem-result-custom-tight">
+                <p className="holdem-custom-heading">自定义保额</p>
+                <div className="holdem-custom-buy-row">
+                  <span className="holdem-custom-buy-label">金额：</span>
+                  <input
+                    id="omaha-custom-buy-input"
+                    className="holdem-custom-input holdem-custom-input-inline"
+                    inputMode="decimal"
+                    min="0"
+                    type="number"
+                    value={omahaResultCustomBuy}
+                    onChange={(event) => setOmahaResultCustomBuy(event.target.value)}
+                  />
+                </div>
+                {omahaCustomPreview?.kind === 'empty' ? (
+                  <p className="holdem-custom-placeholder">可输入任意金额测算。</p>
+                ) : null}
+                {omahaCustomPreview?.kind === 'invalid' ? (
+                  <p className="holdem-custom-invalid">请输入大于 0 的有效金额。</p>
+                ) : null}
+                {omahaCustomPreview?.kind === 'pending' ? (
+                  <p className="holdem-custom-line">
+                    预计赔付：<strong>待确认</strong> · 状态：赔率待确认，暂不能测算。
+                  </p>
+                ) : null}
+                {omahaCustomPreview?.kind === 'ok' ? (
+                  <p className="holdem-custom-line">
+                    预计赔付：<strong>{omahaCustomPreview.payout.toFixed(2)}</strong> · 状态：可买
+                  </p>
+                ) : null}
+                {omahaCustomPreview?.kind === 'over' ? (
+                  <p className="holdem-custom-line holdem-custom-line-warn">
+                    预计赔付：<strong>{omahaCustomPreview.payout.toFixed(2)}</strong> · 状态：超过底池，最多可买{' '}
+                    {omahaCustomPreview.maxBuyDisplay.replace(/\.00$/, '')}
+                  </p>
+                ) : null}
+              </div>
+
+              <p className="holdem-result-footnote">{result.algorithmStatus}</p>
+            </>
+          ) : result.gameType === 'holdem' && result.leaderHandDisplay !== undefined ? (
             <>
               <div className="holdem-result-compact">
                 <div className="holdem-rcell">
@@ -729,6 +1022,179 @@ function App() {
         </section>
       )}
     </main>
+  )
+}
+
+function OmahaForm({
+  form,
+  pickerHint,
+  openZone,
+  onTogglePickerZone,
+  onToggleCard,
+  onStreetChange,
+  onPotChange,
+  onAllInChange,
+  onLeaderChange,
+}: {
+  form: FormState
+  pickerHint: string
+  openZone: 'leader' | 'underdog' | 'board' | null
+  onTogglePickerZone: (zone: 'leader' | 'underdog' | 'board') => void
+  onToggleCard: (zone: 'leader' | 'underdog' | 'board', code: string) => void
+  onStreetChange: (street: Street) => void
+  onPotChange: (value: string) => void
+  onAllInChange: (value: string) => void
+  onLeaderChange: (player: Player) => void
+}) {
+  const leader = form.omahaLeaderCodes ?? []
+  const under = form.omahaUnderdogCodes ?? []
+  const board = form.omahaBoardCodes ?? []
+  const omahaStreet = omahaEffectiveStreet(form.street)
+  const maxBoard = omahaMaxBoardCards(omahaStreet)
+
+  useEffect(() => {
+    if (form.street !== 'flop' && form.street !== 'turn') {
+      onStreetChange('flop')
+    }
+  }, [form.street, onStreetChange])
+
+  return (
+    <>
+      <div className="holdem-hands-row">
+        <HoldemHandMini
+          title="领先方"
+          selectedCodes={leader}
+          isOpen={openZone === 'leader'}
+          onToggleOpen={() => onTogglePickerZone('leader')}
+          onToggle={(code) => onToggleCard('leader', code)}
+          selectedRowClassName="holdem-selected-row-omaha"
+        />
+        <HoldemHandMini
+          title="落后方"
+          selectedCodes={under}
+          isOpen={openZone === 'underdog'}
+          onToggleOpen={() => onTogglePickerZone('underdog')}
+          onToggle={(code) => onToggleCard('underdog', code)}
+          selectedRowClassName="holdem-selected-row-omaha"
+        />
+      </div>
+      {openZone === 'leader' ? (
+        <HoldemCardPickerSheet
+          ariaLabel="领先方选牌"
+          maxCount={4}
+          selectedCodes={leader}
+          otherCodes={new Set([...under, ...board])}
+          onToggle={(code) => onToggleCard('leader', code)}
+        />
+      ) : null}
+      {openZone === 'underdog' ? (
+        <HoldemCardPickerSheet
+          ariaLabel="落后方选牌"
+          maxCount={4}
+          selectedCodes={under}
+          otherCodes={new Set([...leader, ...board])}
+          onToggle={(code) => onToggleCard('underdog', code)}
+        />
+      ) : null}
+
+      <div className={`holdem-board-wrap${maxBoard === 0 ? ' is-disabled' : ''}`}>
+        <div className="holdem-board-inline">
+          <span className="holdem-board-title">公共牌</span>
+          <div className="holdem-board-chips">
+            {board.length === 0 ? (
+              <span className="holdem-selected-empty">未选择</span>
+            ) : (
+              board.map((code) => (
+                <button
+                  key={code}
+                  type="button"
+                  className="holdem-chip holdem-chip-sm"
+                  onClick={() => onToggleCard('board', code)}
+                >
+                  {formatCardCodeForDisplay(code)}
+                </button>
+              ))
+            )}
+          </div>
+          {maxBoard > 0 ? (
+            <button
+              type="button"
+              className="pick-toggle pick-toggle-compact"
+              onClick={() => onTogglePickerZone('board')}
+            >
+              {openZone === 'board' ? '收起' : '改牌'}
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {openZone === 'board' && maxBoard > 0 ? (
+        <HoldemCardPickerSheet
+          ariaLabel="公共牌选牌"
+          maxCount={maxBoard}
+          selectedCodes={board}
+          otherCodes={new Set([...leader, ...under])}
+          onToggle={(code) => onToggleCard('board', code)}
+        />
+      ) : null}
+
+      <div className="holdem-fields-compact">
+        <div className="field-group holdem-leader-row">
+          <span className="holdem-field-label">当前领先方</span>
+          <div className="segmented holdem-seg-inline">
+            {(['A', 'B'] as Player[]).map((player) => (
+              <button
+                key={player}
+                type="button"
+                className={form.leader === player ? 'segment is-active' : 'segment'}
+                onClick={() => onLeaderChange(player)}
+              >
+                玩家 {player}
+              </button>
+            ))}
+          </div>
+        </div>
+        <label className="holdem-street-row">
+          <span className="holdem-field-label">当前街</span>
+          <select
+            className="holdem-select-tight"
+            value={omahaStreet}
+            onChange={(event) => onStreetChange(event.target.value as Street)}
+          >
+            {streetOptionsOmaha.map((street) => (
+              <option key={street.value} value={street.value}>
+                {street.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="holdem-money-row">
+          <label className="holdem-money-pair">
+            <span className="holdem-field-label">总底池</span>
+            <input
+              className="holdem-input-tight"
+              inputMode="decimal"
+              min="0"
+              type="number"
+              value={form.potAmount}
+              onChange={(event) => onPotChange(event.target.value)}
+            />
+          </label>
+          <label className="holdem-money-pair">
+            <span className="holdem-field-label">投入</span>
+            <input
+              className="holdem-input-tight"
+              inputMode="decimal"
+              min="0"
+              type="number"
+              value={form.allInAmount}
+              onChange={(event) => onAllInChange(event.target.value)}
+            />
+          </label>
+        </div>
+      </div>
+
+      {pickerHint ? <p className="picker-hint">{pickerHint}</p> : null}
+    </>
   )
 }
 
@@ -917,13 +1383,17 @@ function HoldemHandMini({
   onToggle,
   isOpen,
   onToggleOpen,
+  selectedRowClassName,
 }: {
   title: string
   selectedCodes: string[]
   onToggle: (code: string) => void
   isOpen: boolean
   onToggleOpen: () => void
+  /** 附加在已选牌行上的 class，奥马哈 4 张时可换行 */
+  selectedRowClassName?: string
 }) {
+  const rowCls = ['holdem-selected-row', 'holdem-selected-row-tight', selectedRowClassName].filter(Boolean).join(' ')
   return (
     <div className="holdem-hand-mini">
       <div className="holdem-hand-mini-head">
@@ -932,7 +1402,7 @@ function HoldemHandMini({
           {isOpen ? '收起' : '改牌'}
         </button>
       </div>
-      <div className="holdem-selected-row holdem-selected-row-tight">
+      <div className={rowCls}>
         {selectedCodes.length === 0 ? (
           <span className="holdem-selected-empty">未选择</span>
         ) : (
