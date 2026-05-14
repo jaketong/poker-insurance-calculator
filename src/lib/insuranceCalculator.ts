@@ -1665,6 +1665,9 @@ export function formatPercent(value: number): string {
 export const HOLDEM_RESULT_FOOTER =
   '概率按完整 runout 枚举，赔率为默认参考表，现场可调整。'
 
+/** 复制到剪贴板的统一结尾说明（与页面算法说明区分，偏转发场景） */
+const CLIPBOARD_DISCLAIMER = '说明：结果仅供线下牌局保险计算参考，请以实际牌局规则为准。'
+
 export function collectHoldemResultLines(
   result: InsuranceResult,
   opts?: { customBuyText?: string; potAmount?: number },
@@ -1672,16 +1675,17 @@ export function collectHoldemResultLines(
   const boardLine = result.boardDisplay?.trim() ? result.boardDisplay : '（无）'
   const hitProbLine =
     result.holdemPreflopPairSpecial === 'overtake35'
-      ? '命中概率：固定赔率'
-      : `命中概率：${formatPercent(result.hitProbability)}`
+      ? '保险命中概率：固定赔率'
+      : `保险命中概率：${formatPercent(result.hitProbability)}`
   const lines = [
-    `【${HOLDEM_GAME_NAME}保险计算】`,
+    '扑克保险计算结果',
+    `游戏类型：${HOLDEM_GAME_NAME}`,
     `领先方：${result.leaderHandDisplay ?? ''}`,
     `落后方：${result.underdogHandDisplay ?? ''}`,
     `公共牌：${boardLine}`,
-    `${result.outsDisplayLabel}：${result.outs}`,
+    `反超 Outs：${result.outs} 张`,
     hitProbLine,
-    `${result.oddsLineLabel}：${formatOdds(result.defaultOdds)}`,
+    `保险赔率：${formatOdds(result.defaultOdds)}`,
   ]
   if (result.holdemInsuranceTypeLabel) {
     lines.push(`保险类型：${result.holdemInsuranceTypeLabel}`)
@@ -1692,8 +1696,8 @@ export function collectHoldemResultLines(
   if (result.holdemPairRuleHint) {
     lines.push(result.holdemPairRuleHint)
   }
-  lines.push(`买保本：${formatAmount(result.breakEvenInsurance)}`)
-  lines.push(`买满池：${formatAmount(result.fullPotInsurance)}`)
+  lines.push(`建议买保：${formatAmount(result.breakEvenInsurance)}`)
+  lines.push(`买满池参考：${formatAmount(result.fullPotInsurance)}`)
   const t = (opts?.customBuyText ?? '').trim()
   const pot = opts?.potAmount
   if (t !== '' && pot !== undefined && Number.isFinite(pot) && pot > 0) {
@@ -1723,6 +1727,7 @@ export function collectHoldemResultLines(
   } else {
     lines.push(HOLDEM_RESULT_FOOTER)
   }
+  lines.push(CLIPBOARD_DISCLAIMER)
   return lines
 }
 
@@ -1735,47 +1740,79 @@ export function buildHoldemClipboardText(
 }
 
 export function buildResultText(result: InsuranceResult): string {
-  const oddsLabel = result.oddsLineLabel ?? '默认赔率'
   if (result.gameType === 'holdem' && result.leaderHandDisplay !== undefined) {
     return collectHoldemResultLines(result).join('\n')
   }
 
   if (result.gameType === 'omaha' && result.omahaCompactLayout) {
-    return [
-      '【奥马哈保险计算】',
-      `${result.outsDisplayLabel}：${result.outs}`,
-      `命中概率：${formatPercent(result.hitProbability)}`,
-      `${oddsLabel}：${formatOdds(result.defaultOdds)}`,
-      `买保本：${formatAmount(result.breakEvenInsurance)}`,
-      `买满池：${formatAmount(result.fullPotInsurance)}`,
-      result.algorithmStatus,
-    ].join('\n')
+    const lines = [
+      '扑克保险计算结果',
+      `游戏类型：${gameLabels.omaha}`,
+      `领先方：玩家${result.leader}`,
+      `落后方：玩家${result.underdog}`,
+      `反超 Outs：${result.outs} 张`,
+      `保险命中概率：${formatPercent(result.hitProbability)}`,
+      `保险赔率：${formatOdds(result.defaultOdds)}`,
+      `建议买保：${formatAmount(result.breakEvenInsurance)}`,
+      `买满池参考：${formatAmount(result.fullPotInsurance)}`,
+    ]
+    const direct = result.directOutCardCodesDisplay?.trim()
+    if (direct) {
+      lines.push(`反超牌：${direct}`)
+    }
+    const chop = result.chopOutCardCodesDisplay?.trim()
+    if (chop) {
+      lines.push(`平分牌：${chop}`)
+    }
+    lines.push(CLIPBOARD_DISCLAIMER)
+    return lines.join('\n')
   }
 
   if (result.gameType === 'shortDeck' && result.shortDeckCompactLayout) {
-    return [
-      '【短牌保险计算】',
-      `${result.outsDisplayLabel}：${result.outs}`,
-      `命中概率：${formatPercent(result.hitProbability)}`,
-      `${oddsLabel}：${formatOdds(result.defaultOdds)}`,
-      `买保本：${formatAmount(result.breakEvenInsurance)}`,
-      `买满池：${formatAmount(result.fullPotInsurance)}`,
-      result.algorithmStatus,
-    ].join('\n')
+    const lines = [
+      '扑克保险计算结果',
+      `游戏类型：${gameLabels.shortDeck}`,
+      `领先方：玩家${result.leader}`,
+      `落后方：玩家${result.underdog}`,
+      `反超 Outs：${result.outs} 张`,
+      `保险命中概率：${formatPercent(result.hitProbability)}`,
+      `保险赔率：${formatOdds(result.defaultOdds)}`,
+      `建议买保：${formatAmount(result.breakEvenInsurance)}`,
+      `买满池参考：${formatAmount(result.fullPotInsurance)}`,
+    ]
+    const directSd = result.directOutCardCodesDisplay?.trim()
+    if (directSd) {
+      lines.push(`反超牌：${directSd}`)
+    }
+    const chopSd = result.chopOutCardCodesDisplay?.trim()
+    if (chopSd) {
+      lines.push(`平分牌：${chopSd}`)
+    }
+    lines.push(CLIPBOARD_DISCLAIMER)
+    return lines.join('\n')
   }
 
-  return [
-    `【${gameLabels[result.gameType]}保险计算】`,
-    `领先方：玩家 ${result.leader}`,
-    `落后方：玩家 ${result.underdog}`,
-    `${result.outsDisplayLabel}：${result.outs}`,
+  const lines = [
+    '扑克保险计算结果',
+    `游戏类型：${gameLabels[result.gameType]}`,
+    `领先方：玩家${result.leader}`,
+    `落后方：玩家${result.underdog}`,
+    `反超 Outs：${result.outs} 张`,
     `保险命中概率：${formatPercent(result.hitProbability)}`,
-    `${oddsLabel}：${formatOdds(result.defaultOdds)}`,
-    `买保本金额：${formatAmount(result.breakEvenInsurance)}`,
-    `买满池金额：${formatAmount(result.fullPotInsurance)}`,
-    `行动建议：${result.advice}`,
-    `算法状态：${result.algorithmStatus}`,
-  ].join('\n')
+    `保险赔率：${formatOdds(result.defaultOdds)}`,
+    `建议买保：${formatAmount(result.breakEvenInsurance)}`,
+    `买满池参考：${formatAmount(result.fullPotInsurance)}`,
+  ]
+  const directFb = result.directOutCardCodesDisplay?.trim()
+  if (directFb) {
+    lines.push(`反超牌：${directFb}`)
+  }
+  const chopFb = result.chopOutCardCodesDisplay?.trim()
+  if (chopFb) {
+    lines.push(`平分牌：${chopFb}`)
+  }
+  lines.push(CLIPBOARD_DISCLAIMER)
+  return lines.join('\n')
 }
 
 export function calculateInsurance(input: InsuranceInput): {
