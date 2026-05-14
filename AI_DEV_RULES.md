@@ -233,3 +233,54 @@
 
 ```text
 说明：结果仅供线下牌局保险计算参考，请以实际牌局规则为准。
+```
+
+---
+
+## 11. GitHub 与 Netlify 发布规则
+
+1. GitHub 仓库地址为：  
+   https://github.com/jaketong/poker-insurance-calculator
+
+2. Netlify 当前已连接 GitHub 仓库，并从 master 分支自动部署。
+
+3. push 到 master 会触发 Netlify 自动部署生产站点。
+
+4. 未经用户明确确认，不得执行 git push。
+
+5. 未经用户明确确认，不得手动触发 Netlify deploy。
+
+6. 每次准备 push 前必须完成：
+
+   - git status --short
+   - 确认工作区干净或只包含预期改动
+   - 确认没有 dist、node_modules、.env、日志、临时文件、数据库文件
+   - 确认没有 package.json、lock 文件、部署配置的意外变更
+
+7. 每次 push 后必须检查 Netlify Deploys 页面：
+
+   - 状态必须为 Published
+   - 部署提交必须与本次 push 的 commit 一致
+   - 如果部署失败，只查看部署日志，不得扩大修改范围
+
+8. Netlify 配置属于高风险项，未经用户确认不得修改：
+
+   - Build command
+   - Publish directory
+   - Branch to deploy
+   - Environment variables
+   - Domain settings
+   - Deploy hooks
+   - Plugins
+
+9. 当前标准发布流程为：
+
+   Cursor 修改代码  
+   → ChatGPT 验收  
+   → Codex 审查  
+   → 用户确认提交  
+   → git commit  
+   → 用户确认 push  
+   → git push origin master  
+   → Netlify 自动部署  
+   → 检查 Published
