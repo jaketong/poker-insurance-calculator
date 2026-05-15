@@ -1340,7 +1340,7 @@ function App() {
                   </div>
 
                   {omahaSplitUi.pick ? (
-                    <p className="omaha-split-hint">请选择要购买的反超类型。</p>
+                    <p className="omaha-split-hint">请先点选一种「反超类型」，再继续操作。</p>
                   ) : null}
 
                   {!omahaSplitUi.pick && omahaSplitUi.badBoard ? (
@@ -1540,7 +1540,7 @@ function App() {
                   </div>
 
                   {shortDeckSplitUi.pick ? (
-                    <p className="omaha-split-hint">请选择要购买的反超类型。</p>
+                    <p className="omaha-split-hint">请先点选一种「反超类型」，再继续操作。</p>
                   ) : null}
 
                   {!shortDeckSplitUi.pick && shortDeckSplitUi.badBoard ? (
@@ -1806,7 +1806,7 @@ function App() {
                   </div>
 
                   {holdemSplitUi.pick ? (
-                    <p className="omaha-split-hint">请选择要购买的反超类型。</p>
+                    <p className="omaha-split-hint">请先点选一种「反超类型」，再继续操作。</p>
                   ) : null}
 
                   {!holdemSplitUi.pick && holdemSplitUi.badBoard ? (
