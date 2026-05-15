@@ -1150,6 +1150,140 @@ label.holdem-street-row {
   font-size: 17px;
 }
 
+/* 结果分享卡片：标题 / 领先落后 / 核心数据分区（截图友好） */
+.result-share-hero {
+  text-align: center;
+  padding: 2px 4px 14px;
+  margin: 0 0 12px;
+  border-bottom: 1px solid rgba(215, 181, 109, 0.22);
+}
+
+.result-share-kicker {
+  margin: 0 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: #8fa39a;
+  font-weight: 700;
+}
+
+.result-share-title {
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 900;
+  color: #fff8df;
+  line-height: 1.2;
+}
+
+.result-share-game {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  color: #f2d890;
+}
+
+.result-share-players {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.result-share-player-row {
+  display: grid;
+  gap: 4px;
+  padding: 10px 10px 11px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  min-width: 0;
+}
+
+.result-share-player-row.is-leader {
+  background: linear-gradient(165deg, rgba(215, 181, 109, 0.16), rgba(0, 0, 0, 0.12));
+  box-shadow: inset 0 0 0 1px rgba(215, 181, 109, 0.24);
+}
+
+.result-share-player-label {
+  font-size: 11px;
+  font-weight: 750;
+  color: #a8baae;
+}
+
+.result-share-player-value {
+  font-size: 14px;
+  font-weight: 800;
+  color: #fff8df;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.result-share-metrics {
+  margin-top: 2px;
+  padding: 12px 10px 12px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.result-share-section-label {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #d7b56d;
+}
+
+.result-share-metrics .holdem-result-compact {
+  margin-top: 0;
+}
+
+.result-share-metrics .result-grid {
+  margin-top: 0;
+}
+
+.result-share-outs {
+  margin-top: 12px;
+}
+
+.result-share-outs .holdem-out-cards-line {
+  margin-top: 6px;
+}
+
+.result-share-outs .holdem-out-cards-line:first-of-type {
+  margin-top: 0;
+}
+
+.result-share-secondary {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.result-share-secondary .advice-box,
+.result-share-secondary .algorithm-box {
+  margin-top: 0;
+}
+
+.result-share-disclaimer {
+  margin: 14px 0 0;
+  padding: 10px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  line-height: 1.45;
+  text-align: center;
+  color: #8fa39a;
+  background: rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.result-share-actions {
+  margin-top: 10px;
+}
+
+.result-share-actions .copy-button {
+  margin-top: 0;
+}
+
 .holdem-out-cards-line {
   margin-top: 8px;
   padding: 8px 10px;

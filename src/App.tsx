@@ -1249,59 +1249,75 @@ function App() {
 
       {result && (
         <section className="result-card result-card-screenshot" aria-label="保险计算结果">
-          {result.gameType === 'omaha' && result.omahaCompactLayout ? (
-            <div className="result-card-header result-card-header-holdem">
-              <h2 className="holdem-game-title">{gameLabels.omaha}保险结果</h2>
-            </div>
-          ) : result.gameType === 'shortDeck' && result.shortDeckCompactLayout ? (
-            <div className="result-card-header result-card-header-holdem">
-              <h2 className="holdem-game-title">{gameLabels.shortDeck}保险结果</h2>
-            </div>
-          ) : result.gameType === 'holdem' && result.leaderHandDisplay !== undefined ? (
-            <div className="result-card-header result-card-header-holdem">
-              <h2 className="holdem-game-title">{HOLDEM_GAME_NAME}保险结果</h2>
-            </div>
-          ) : (
-            <div className="result-card-header">
-              <div>
-                <p className="eyebrow">截图转发卡片</p>
-                <h2>{`${gameLabels[result.gameType]}保险结果`}</h2>
+          <header className="result-share-hero" aria-label="结果标题">
+            <p className="result-share-kicker">线下牌局 · 两家 All-in 保险</p>
+            <h2 className="result-share-title">扑克保险计算结果</h2>
+            <p className="result-share-game">{gameLabels[result.gameType]}</p>
+          </header>
+
+          {result.gameType === 'holdem' && result.leaderHandDisplay !== undefined ? (
+            <div className="result-share-players" aria-label="领先与落后方">
+              <div className="result-share-player-row is-leader">
+                <span className="result-share-player-label">领先方</span>
+                <strong className="result-share-player-value">{result.leaderHandDisplay}</strong>
               </div>
-              <span className="result-game-badge">{gameLabels[result.gameType]}</span>
+              <div className="result-share-player-row is-underdog">
+                <span className="result-share-player-label">落后方</span>
+                <strong className="result-share-player-value">{result.underdogHandDisplay ?? ''}</strong>
+              </div>
             </div>
-          )}
+          ) : null}
+          {(result.gameType === 'omaha' && result.omahaCompactLayout) ||
+          (result.gameType === 'shortDeck' && result.shortDeckCompactLayout) ? (
+            <div className="result-share-players" aria-label="领先与落后方">
+              <div className="result-share-player-row is-leader">
+                <span className="result-share-player-label">领先方</span>
+                <strong className="result-share-player-value">玩家 {result.leader}</strong>
+              </div>
+              <div className="result-share-player-row is-underdog">
+                <span className="result-share-player-label">落后方</span>
+                <strong className="result-share-player-value">玩家 {result.underdog}</strong>
+              </div>
+            </div>
+          ) : null}
 
           {result.gameType === 'omaha' && result.omahaCompactLayout ? (
             <>
-              <div className="holdem-result-compact">
-                <div className="holdem-rcell">
-                  <span>{result.outsDisplayLabel}</span>
-                  <strong>{result.outs}</strong>
-                </div>
-                <div className="holdem-rcell">
-                  <span>命中概率</span>
-                  <strong>{formatPercent(result.hitProbability)}</strong>
-                </div>
-                <div className="holdem-rcell">
-                  <span>赔率</span>
-                  <strong>{formatOdds(result.defaultOdds)}</strong>
-                </div>
-                <div className="holdem-rcell">
-                  <span>买保本</span>
-                  <strong>{formatAmount(result.breakEvenInsurance)}</strong>
-                </div>
-                <div className="holdem-rcell holdem-rcell-span2">
-                  <span>买满池</span>
-                  <strong>{formatAmount(result.fullPotInsurance)}</strong>
+              <div className="result-share-metrics" aria-label="核心数据">
+                <p className="result-share-section-label">核心数据</p>
+                <div className="holdem-result-compact">
+                  <div className="holdem-rcell">
+                    <span>{result.outsDisplayLabel}</span>
+                    <strong>{result.outs}</strong>
+                  </div>
+                  <div className="holdem-rcell">
+                    <span>命中概率</span>
+                    <strong>{formatPercent(result.hitProbability)}</strong>
+                  </div>
+                  <div className="holdem-rcell">
+                    <span>赔率</span>
+                    <strong>{formatOdds(result.defaultOdds)}</strong>
+                  </div>
+                  <div className="holdem-rcell">
+                    <span>买保本</span>
+                    <strong>{formatAmount(result.breakEvenInsurance)}</strong>
+                  </div>
+                  <div className="holdem-rcell holdem-rcell-span2">
+                    <span>买满池</span>
+                    <strong>{formatAmount(result.fullPotInsurance)}</strong>
+                  </div>
                 </div>
               </div>
 
-              <p className="holdem-out-cards-line">
-                反超牌：{result.directOutCardCodesDisplay?.trim() ? result.directOutCardCodesDisplay : '无'}
-              </p>
-              <p className="holdem-out-cards-line">
-                平分牌：{result.chopOutCardCodesDisplay?.trim() ? result.chopOutCardCodesDisplay : '无'}
-              </p>
+              <div className="result-share-outs" aria-label="反超与平分牌">
+                <p className="result-share-section-label">反超与平分</p>
+                <p className="holdem-out-cards-line">
+                  反超牌：{result.directOutCardCodesDisplay?.trim() ? result.directOutCardCodesDisplay : '无'}
+                </p>
+                <p className="holdem-out-cards-line">
+                  平分牌：{result.chopOutCardCodesDisplay?.trim() ? result.chopOutCardCodesDisplay : '无'}
+                </p>
+              </div>
 
               {omahaSplitUi ? (
                 <div className="omaha-split-box">
@@ -1467,35 +1483,41 @@ function App() {
             </>
           ) : result.gameType === 'shortDeck' && result.shortDeckCompactLayout ? (
             <>
-              <div className="holdem-result-compact">
-                <div className="holdem-rcell">
-                  <span>{result.outsDisplayLabel}</span>
-                  <strong>{result.outs}</strong>
-                </div>
-                <div className="holdem-rcell">
-                  <span>命中概率</span>
-                  <strong>{formatPercent(result.hitProbability)}</strong>
-                </div>
-                <div className="holdem-rcell">
-                  <span>赔率</span>
-                  <strong>{formatOdds(result.defaultOdds)}</strong>
-                </div>
-                <div className="holdem-rcell">
-                  <span>买保本</span>
-                  <strong>{formatAmount(result.breakEvenInsurance)}</strong>
-                </div>
-                <div className="holdem-rcell holdem-rcell-span2">
-                  <span>买满池</span>
-                  <strong>{formatAmount(result.fullPotInsurance)}</strong>
+              <div className="result-share-metrics" aria-label="核心数据">
+                <p className="result-share-section-label">核心数据</p>
+                <div className="holdem-result-compact">
+                  <div className="holdem-rcell">
+                    <span>{result.outsDisplayLabel}</span>
+                    <strong>{result.outs}</strong>
+                  </div>
+                  <div className="holdem-rcell">
+                    <span>命中概率</span>
+                    <strong>{formatPercent(result.hitProbability)}</strong>
+                  </div>
+                  <div className="holdem-rcell">
+                    <span>赔率</span>
+                    <strong>{formatOdds(result.defaultOdds)}</strong>
+                  </div>
+                  <div className="holdem-rcell">
+                    <span>买保本</span>
+                    <strong>{formatAmount(result.breakEvenInsurance)}</strong>
+                  </div>
+                  <div className="holdem-rcell holdem-rcell-span2">
+                    <span>买满池</span>
+                    <strong>{formatAmount(result.fullPotInsurance)}</strong>
+                  </div>
                 </div>
               </div>
 
-              <p className="holdem-out-cards-line">
-                反超牌：{result.directOutCardCodesDisplay?.trim() ? result.directOutCardCodesDisplay : '无'}
-              </p>
-              <p className="holdem-out-cards-line">
-                平分牌：{result.chopOutCardCodesDisplay?.trim() ? result.chopOutCardCodesDisplay : '无'}
-              </p>
+              <div className="result-share-outs" aria-label="反超与平分牌">
+                <p className="result-share-section-label">反超与平分</p>
+                <p className="holdem-out-cards-line">
+                  反超牌：{result.directOutCardCodesDisplay?.trim() ? result.directOutCardCodesDisplay : '无'}
+                </p>
+                <p className="holdem-out-cards-line">
+                  平分牌：{result.chopOutCardCodesDisplay?.trim() ? result.chopOutCardCodesDisplay : '无'}
+                </p>
+              </div>
 
               {shortDeckSplitUi ? (
                 <div className="omaha-split-box">
@@ -1665,42 +1687,46 @@ function App() {
             </>
           ) : result.gameType === 'holdem' && result.leaderHandDisplay !== undefined ? (
             <>
-              <div className="holdem-result-compact">
-                <div className="holdem-rcell">
-                  <span>OUTS</span>
-                  <strong>{result.outs}</strong>
-                </div>
-                <div className="holdem-rcell">
-                  <span>命中概率</span>
-                  <strong>
-                    {result.holdemPreflopPairSpecial === 'overtake35'
-                      ? '固定赔率'
-                      : formatPercent(result.hitProbability)}
-                  </strong>
-                </div>
-                <div className="holdem-rcell">
-                  <span>赔率</span>
-                  <strong>{formatOdds(result.defaultOdds)}</strong>
-                </div>
-                <div className="holdem-rcell">
-                  <span>买保本</span>
-                  <strong>{formatAmount(result.breakEvenInsurance)}</strong>
-                </div>
-                <div className="holdem-rcell holdem-rcell-span2">
-                  <span>买满池</span>
-                  <strong>{formatAmount(result.fullPotInsurance)}</strong>
+              <div className="result-share-metrics" aria-label="核心数据">
+                <p className="result-share-section-label">核心数据</p>
+                <div className="holdem-result-compact">
+                  <div className="holdem-rcell">
+                    <span>OUTS</span>
+                    <strong>{result.outs}</strong>
+                  </div>
+                  <div className="holdem-rcell">
+                    <span>命中概率</span>
+                    <strong>
+                      {result.holdemPreflopPairSpecial === 'overtake35'
+                        ? '固定赔率'
+                        : formatPercent(result.hitProbability)}
+                    </strong>
+                  </div>
+                  <div className="holdem-rcell">
+                    <span>赔率</span>
+                    <strong>{formatOdds(result.defaultOdds)}</strong>
+                  </div>
+                  <div className="holdem-rcell">
+                    <span>买保本</span>
+                    <strong>{formatAmount(result.breakEvenInsurance)}</strong>
+                  </div>
+                  <div className="holdem-rcell holdem-rcell-span2">
+                    <span>买满池</span>
+                    <strong>{formatAmount(result.fullPotInsurance)}</strong>
+                  </div>
                 </div>
               </div>
 
               {!result.holdemPreflopPairSpecial ? (
-                <>
+                <div className="result-share-outs" aria-label="反超与平分牌">
+                  <p className="result-share-section-label">反超与平分</p>
                   <p className="holdem-out-cards-line">
                     反超牌：{result.directOutCardCodesDisplay?.trim() ? result.directOutCardCodesDisplay : '无'}
                   </p>
                   <p className="holdem-out-cards-line">
                     平分牌：{result.chopOutCardCodesDisplay?.trim() ? result.chopOutCardCodesDisplay : '无'}
                   </p>
-                </>
+                </div>
               ) : null}
 
               {result.holdemInsuranceTypeLabel ? (
@@ -1923,33 +1949,43 @@ function App() {
             </>
           ) : (
             <>
-              <div className="result-grid">
-                <ResultItem label="当前领先方" value={`玩家 ${result.leader}`} />
-                <ResultItem label="当前落后方" value={`玩家 ${result.underdog}`} />
-                <ResultItem label={result.outsDisplayLabel} value={`${result.outs}`} />
-                <ResultItem label="保险命中概率" value={formatPercent(result.hitProbability)} />
-                <ResultItem label={result.oddsLineLabel} value={formatOdds(result.defaultOdds)} />
-                <ResultItem label="剩余牌数" value={`${result.remainingCards}`} />
-                <ResultItem label="买保本金额" value={formatAmount(result.breakEvenInsurance)} />
-                <ResultItem label="买满池金额" value={formatAmount(result.fullPotInsurance)} />
+              <div className="result-share-metrics" aria-label="核心数据">
+                <p className="result-share-section-label">核心数据</p>
+                <div className="result-grid">
+                  <ResultItem label="当前领先方" value={`玩家 ${result.leader}`} />
+                  <ResultItem label="当前落后方" value={`玩家 ${result.underdog}`} />
+                  <ResultItem label={result.outsDisplayLabel} value={`${result.outs}`} />
+                  <ResultItem label="保险命中概率" value={formatPercent(result.hitProbability)} />
+                  <ResultItem label={result.oddsLineLabel} value={formatOdds(result.defaultOdds)} />
+                  <ResultItem label="剩余牌数" value={`${result.remainingCards}`} />
+                  <ResultItem label="买保本金额" value={formatAmount(result.breakEvenInsurance)} />
+                  <ResultItem label="买满池金额" value={formatAmount(result.fullPotInsurance)} />
+                </div>
               </div>
 
-              <div className="advice-box">
-                <strong>行动建议</strong>
-                <p>{result.advice}</p>
-              </div>
+              <div className="result-share-secondary">
+                <div className="advice-box">
+                  <strong>行动建议</strong>
+                  <p>{result.advice}</p>
+                </div>
 
-              <div className="algorithm-box">
-                <strong>算法状态说明</strong>
-                <p>{result.algorithmStatus}</p>
+                <div className="algorithm-box">
+                  <strong>算法状态说明</strong>
+                  <p>{result.algorithmStatus}</p>
+                </div>
               </div>
             </>
           )}
 
-          <button className="copy-button" type="button" onClick={handleCopy}>
-            复制结果文本
-          </button>
-          {copyStatus && <p className="copy-status">{copyStatus}</p>}
+          <p className="result-share-disclaimer" role="note">
+            说明：结果仅供线下牌局保险计算参考，请以实际牌局规则为准。
+          </p>
+          <div className="result-share-actions">
+            <button className="copy-button" type="button" onClick={handleCopy}>
+              复制结果文本
+            </button>
+            {copyStatus && <p className="copy-status">{copyStatus}</p>}
+          </div>
         </section>
       )}
 
