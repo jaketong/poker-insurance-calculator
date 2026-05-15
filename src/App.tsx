@@ -1047,9 +1047,8 @@ function App() {
 
         setErrors(calculation.errors)
         setResult(calculation.result)
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        setErrors([`计算过程出错：${msg}`])
+      } catch {
+        setErrors(['计算暂时遇到问题，请检查牌面、底池和投入是否都已按提示填好，稍后再试。'])
         setResult(null)
       }
     }

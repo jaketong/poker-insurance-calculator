@@ -1539,47 +1539,60 @@ export function validateCards(
   if (playerA.length !== handSize) {
     errors.push(
       gameType === 'omaha'
-        ? '奥马哈领先方必须 4 张'
-        : `玩家 A 手牌需要 ${handSize} 张`,
+        ? '请输入完整手牌：领先方需 4 张。奥马哈每人固定 4 张，比牌须从手牌里选 2 张、从公共牌里选 3 张。'
+        : '请输入完整手牌：领先方需选满 2 张。',
     )
   }
 
   if (playerB.length !== handSize) {
     errors.push(
       gameType === 'omaha'
-        ? '奥马哈落后方必须 4 张'
-        : `玩家 B 手牌需要 ${handSize} 张`,
+        ? '请输入完整手牌：落后方需 4 张。奥马哈每人固定 4 张，比牌须从手牌里选 2 张、从公共牌里选 3 张。'
+        : '请输入完整手牌：落后方需选满 2 张。',
     )
   }
 
   if (board.length > 5) {
-    errors.push('公共牌最多 5 张')
+    errors.push('公共牌太多：最多 5 张，请删掉多余的牌。')
   }
 
   if (gameType === 'holdem') {
     const bl = board.length
     if (bl !== 0 && bl !== 3 && bl !== 4 && bl !== 5) {
-      errors.push('德州扑克公共牌数量仅允许 0、3、4、5 张（不允许 1 或 2 张）')
+      errors.push('公共牌数量不对：德州只能是 0、3、4、5 张。请按当前发牌进度补齐或删牌。')
     }
   }
 
   if (gameType === 'shortDeck') {
     const bl = board.length
     if (bl !== 0 && bl !== 3 && bl !== 4 && bl !== 5) {
-      errors.push('短牌公共牌数量仅允许 0、3、4、5 张（不允许 1 或 2 张）')
+      errors.push('公共牌数量不对：短牌只能是 0、3、4、5 张。请按当前发牌进度补齐或删牌。')
     }
   }
 
   allCards.forEach((card) => {
     if (card.code.length !== 2 || !validRanks.has(card.rank) || !validSuits.has(card.suit)) {
-      errors.push(`牌面格式无效：${card.code || '空值'}`)
+      const shown = formatCardCodeForDisplay(card.code || '')
+      const label = shown.trim() ? `「${shown}」` : '这张牌'
+      if (
+        gameType === 'shortDeck' &&
+        card.rank &&
+        ['2', '3', '4', '5'].includes(card.rank) &&
+        validSuits.has(card.suit)
+      ) {
+        errors.push(`短牌没有 ${shown}：短牌只用 6～A，不要选 2、3、4、5。`)
+      } else {
+        errors.push(
+          `牌面写法不对：${label}。请用 Ah、Kd、Qh、Jc 这种格式：先点数、后花色，多张牌用空格分开。`,
+        )
+      }
     }
   })
 
   const seen = new Set<string>()
   allCards.forEach((card) => {
     if (seen.has(card.code)) {
-      errors.push(`重复牌：${card.code}`)
+      errors.push(`发现重复牌：${formatCardCodeForDisplay(card.code)}。每张牌只能出现一次。`)
     }
     seen.add(card.code)
   })
@@ -1825,53 +1838,53 @@ export function calculateInsurance(input: InsuranceInput): {
   const errors = validateCards(input.gameType, playerA, playerB, board)
 
   if (input.potAmount <= 0) {
-    errors.push('总底池必须大于 0')
+    errors.push('请填写底池金额，并填一个大于 0 的数字。')
   }
 
   if (input.allInAmount <= 0) {
-    errors.push('投入必须大于 0')
+    errors.push('请填写投入金额，并填一个大于 0 的数字。')
   }
 
   if (input.potAmount > 0 && input.allInAmount > input.potAmount) {
-    errors.push('投入不能大于总底池')
+    errors.push('投入不能大于底池，请检查两个数字是否填反了。')
   }
 
   if (input.gameType === 'holdem') {
     if (input.street === 'river') {
-      errors.push('德州扑克不能选择河牌买保险')
+      errors.push('河牌阶段本工具不计算保险，请改选翻前、翻牌或转牌。')
     }
     if (input.street === 'preflop' && board.length !== 0) {
-      errors.push('翻前公共牌必须为 0 张')
+      errors.push('翻前不要选公共牌，请把公共牌清空。')
     }
     if (input.street === 'flop' && board.length !== 3) {
-      errors.push('翻牌公共牌必须为 3 张')
+      errors.push('请先补齐公共牌：翻牌阶段需要桌面上 3 张公共牌。')
     }
     if (input.street === 'turn' && board.length !== 4) {
-      errors.push('转牌公共牌必须为 4 张')
+      errors.push('请先补齐公共牌：转牌阶段需要桌面上 4 张公共牌。')
     }
   }
 
   if (input.gameType === 'omaha') {
     if (input.street !== 'flop' && input.street !== 'turn') {
-      errors.push('奥马哈仅支持翻牌或转牌启动保险')
+      errors.push('请先在上方选择「翻牌」或「转牌」，并补齐双方手牌与公共牌后再计算。')
     }
     if (input.street === 'flop' && board.length !== 3) {
-      errors.push('奥马哈翻牌公共牌必须 3 张')
+      errors.push('请先补齐公共牌：奥马哈翻牌需要 3 张。成牌规则是手牌里选 2 张 + 公共牌里选 3 张。')
     }
     if (input.street === 'turn' && board.length !== 4) {
-      errors.push('奥马哈转牌公共牌必须 4 张')
+      errors.push('请先补齐公共牌：奥马哈转牌需要 4 张。成牌规则是手牌里选 2 张 + 公共牌里选 3 张。')
     }
   }
 
   if (input.gameType === 'shortDeck') {
     if (input.street !== 'flop' && input.street !== 'turn') {
-      errors.push('短牌仅支持翻牌或转牌启动保险')
+      errors.push('请先在上方选择「翻牌」或「转牌」，并补齐双方手牌与公共牌后再计算。')
     }
     if (input.street === 'flop' && board.length !== 3) {
-      errors.push('短牌翻牌公共牌必须 3 张')
+      errors.push('请先补齐公共牌：短牌翻牌需要 3 张。短牌只用 6～A，不要出现 2、3、4、5。')
     }
     if (input.street === 'turn' && board.length !== 4) {
-      errors.push('短牌转牌公共牌必须 4 张')
+      errors.push('请先补齐公共牌：短牌转牌需要 4 张。短牌只用 6～A，不要出现 2、3、4、5。')
     }
   }
 
